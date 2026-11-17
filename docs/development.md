@@ -77,5 +77,6 @@ Rules: actions pinned by commit SHA, `permissions: {}` at the top and
 `contents: read` per job, no persisted checkout credentials, superseded
 pull request runs cancelled. Caches (mise, Bun packages, Docker layers) are
 written only by `main` and read by everyone, so pull requests cannot evict
-`main`'s caches. Playwright's browsers are downloaded each run, as
-Playwright recommends.
+`main`'s caches. Playwright's Chromium headless shell is downloaded each run, as
+Playwright recommends, without `--with-deps`: the runner image already has
+Chrome's system libraries, and the apt step took minutes on slow mirrors.

@@ -136,10 +136,13 @@ jobs:
       - name: Install dependencies
         run: mise run setup
 
+      # Only the headless shell: the runner image already has Chrome's system
+      # libraries (it ships Google Chrome), so no apt step is needed; a
+      # missing library fails the test with Playwright's own message.
       # Playwright advises against caching browsers: restoring takes about as
       # long as downloading them.
-      - name: Install Chromium and its system dependencies
-        run: bunx --bun playwright install --with-deps chromium
+      - name: Install Chromium headless shell
+        run: bunx --bun playwright install --only-shell chromium
 
       - name: Run the E2E smoke test against the image
         env:
