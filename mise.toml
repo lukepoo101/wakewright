@@ -3,6 +3,12 @@
 
 [tools]
 bun = "1.4.4"
+# Linters for the workflows and the Dockerfile, used by `mise run check`.
+actionlint = "1.7.12"
+hadolint = "2.15.1"
+# actionlint runs shellcheck on every workflow `run:` script.
+shellcheck = "0.11.0"
+zizmor = "1.32.0"
 
 [tasks.setup]
 description = "Install dependencies from the lockfile"
@@ -25,6 +31,11 @@ run = [
   "bunx biome lint --error-on-warnings",
   "bun check",
   "bun test",
+  "bun scripts/check-licences.ts",
+  "actionlint",
+  # Online audits too when GH_TOKEN is set (CI sets it); offline otherwise.
+  "zizmor --no-progress .",
+  "hadolint deploy/docker/*.Dockerfile",
 ]
 
 [tasks.e2e]

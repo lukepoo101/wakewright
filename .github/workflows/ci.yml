@@ -1,16 +1,18 @@
 name: CI
 
+# Every pull request, including one from a fork, gets the full set of checks
+# below with a read-only token and no secrets. Nothing here uses
+# `pull_request_target`, so code from a fork never runs with write access.
 on:
   pull_request:
-  merge_group:
   push:
     branches: [main]
 
 # A newer push to a pull request supersedes the run before it. Runs on main
-# finish: they are the only runs that save caches, so cancelling one would
-# cost every later run.
+# each get their own group, so none is cancelled or dropped while queued:
+# they save the caches every later run reads.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
@@ -33,9 +35,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # Installs the Bun that mise.toml pins (and fails if it cannot), so CI
+      # Installs the tools mise.toml pins (and fails if it cannot), so CI
       # never falls back to another version. Only main saves the cache.
-      - name: Set up mise and Bun
+      - name: Set up mise and tools
         uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: ${{ env.MISE_VERSION }}
@@ -62,15 +64,28 @@ jobs:
           path: ${{ steps.bun-cache.outputs.dir }}
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      # Versions, lockfile release age, format, lint, types and unit tests.
+      # See `mise tasks info check` or docs/development.md for the list.
       # Exit 2 from the lockfile-age step means the registry could not be
-      # reached: not a pass, re-run the job.
+      # reached: not a pass, re-run the job. The read-only token lets zizmor
+      # run its online audits (impostor commits, known-vulnerable actions).
       - name: Run checks
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: mise run check
 
   image:
-    name: Image / build + E2E
-    runs-on: ubuntu-24.04
+    name: Image / build + E2E (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    # Native runners for both architectures (free for public repositories),
+    # so arm64 is built and tested without emulation.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -86,7 +101,8 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Built for this runner's architecture and loaded into Docker, not
-      # pushed. Pull requests read main's layer cache; only main writes it.
+      # pushed. Pull requests read main's layer cache; only main writes it,
+      # one scope per architecture.
       - name: Build the parent image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -95,8 +111,8 @@ jobs:
           push: false
           load: true
           tags: ${{ env.IMAGE }}
-          cache-from: type=gha,scope=parent
-          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=parent' || '' }}
+          cache-from: type=gha,scope=parent-${{ matrix.arch }}
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope=parent-{0}', matrix.arch) || '' }}
 
       # The parent must stay free of Python (no ML libraries) and of native
       # addons (portable, small). The image has no shell, so inspect its files.
@@ -127,20 +143,22 @@ jobs:
           [ "$status" = healthy ]
           curl -fsS http://localhost:8080/readyz
 
+      # Only Bun: this job needs none of the lint tools in mise.toml.
       - name: Set up mise and Bun
         uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: ${{ env.MISE_VERSION }}
+          install_args: bun
+          cache_key_prefix: mise-bun
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         run: mise run setup
 
-      # Only the headless shell: the runner image already has Chrome's system
-      # libraries (it ships Google Chrome), so no apt step is needed; a
-      # missing library fails the test with Playwright's own message.
-      # Playwright advises against caching browsers: restoring takes about as
-      # long as downloading them.
+      # Only the headless shell: the runner images already have Chrome's
+      # system libraries, so no apt step is needed; a missing library fails
+      # the test with Playwright's own message. Playwright advises against
+      # caching browsers: restoring takes about as long as downloading them.
       - name: Install Chromium headless shell
         run: bunx --bun playwright install --only-shell chromium
 
@@ -157,15 +175,35 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.arch }}
           path: test-results
           retention-days: 7
 
-  # The one check to require on main: it fails unless every job above passed.
+  # Fails a pull request that adds a dependency with a known vulnerability
+  # of moderate severity or worse. It compares the pull request's lockfile
+  # with its base, so an advisory published today against a dependency main
+  # already has does not fail unrelated pull requests; the daily dependency
+  # health workflow reports those instead.
+  dependency-review:
+    name: Dependencies / review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: never
+
+  # The one check to require on main: it fails unless every job above
+  # passed or was skipped by its own `if` (dependency review on pushes).
   ci-ok:
     name: CI OK
     if: always()
-    needs: [check, image]
+    needs: [check, image, dependency-review]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -175,5 +213,8 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           for r in $RESULTS; do
-            [ "$r" = success ] || { echo "::error::A required job finished with: $r"; exit 1; }
+            case "$r" in
+              success | skipped) ;;
+              *) echo "::error::A required job finished with: $r"; exit 1 ;;
+            esac
           done
