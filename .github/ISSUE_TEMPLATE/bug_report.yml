@@ -1,0 +1,46 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste device passwords, tokens or audio. Remove them from logs
+        before you attach them. Report security problems privately through
+        the Security tab instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "0.0.1, or a commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How you run it
+      options: [Docker Compose, Kubernetes, From source, Other]
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and app version
+      placeholder: "Kiosk Satellite 2026.11.23 on ..."
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redacted)
+      render: text
