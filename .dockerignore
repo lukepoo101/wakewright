@@ -1,0 +1,11 @@
+# Only what the image build copies; everything else stays out of the context.
+**
+!package.json
+!bun.lock
+!bunfig.toml
+!LICENSE
+!NOTICE
+!apps/**
+!devtools/fake-kiosk/package.json
+**/node_modules
+**/test
