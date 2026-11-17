@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+# A newer push to a pull request supersedes the run before it. Runs on main
+# finish: they are the only runs that save caches, so cancelling one would
+# cost every later run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  FORCE_COLOR: "1"
+  # The mise release CI uses; local contributors may run any recent mise.
+  MISE_VERSION: "2026.10.21"
+
+jobs:
+  check:
+    name: Check / mise run check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the Bun that mise.toml pins (and fails if it cannot), so CI
+      # never falls back to another version. Only main saves the cache.
+      - name: Set up mise and Bun
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Locate the Bun package cache
+        id: bun-cache
+        run: echo "dir=$(bun pm cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Bun packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.bun-cache.outputs.dir }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: mise run setup
+
+      - name: Save Bun packages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.bun-cache.outputs.dir }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      # Versions, lockfile release age, format, lint, types and unit tests.
+      # Exit 2 from the lockfile-age step means the registry could not be
+      # reached: not a pass, re-run the job.
+      - name: Run checks
+        run: mise run check
+
+  image:
+    name: Image / build + E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      IMAGE: wakewright:ci
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Built for this runner's architecture and loaded into Docker, not
+      # pushed. Pull requests read main's layer cache; only main writes it.
+      - name: Build the parent image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/parent.Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=parent
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=parent' || '' }}
+
+      # The parent must stay free of Python (no ML libraries) and of native
+      # addons (portable, small). The image has no shell, so inspect its files.
+      - name: Check the image has no Python or native addons
+        run: |
+          id=$(docker create "$IMAGE")
+          files=$(docker export "$id" | tar -t)
+          docker rm "$id" > /dev/null
+          if grep -E '(^|/)python[0-9.]*$|\.node$' <<< "$files"; then
+            echo "::error::The parent image contains Python or a native addon (listed above)."
+            exit 1
+          fi
+          docker image ls "$IMAGE" --format 'Image size: {{.Size}}'
+
+      # Run it as a user would: read-only root filesystem, writable /data
+      # volume and /tmp, no extra privileges.
+      - name: Start the image
+        run: |
+          docker run -d --name wakewright --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -p 8080:8080 "$IMAGE"
+          for _ in $(seq 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' wakewright)
+            [ "$status" = healthy ] && break
+            sleep 1
+          done
+          docker inspect -f 'Health: {{.State.Health.Status}}' wakewright
+          [ "$status" = healthy ]
+          curl -fsS http://localhost:8080/readyz
+
+      - name: Set up mise and Bun
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install dependencies
+        run: mise run setup
+
+      # Playwright advises against caching browsers: restoring takes about as
+      # long as downloading them.
+      - name: Install Chromium and its system dependencies
+        run: bunx --bun playwright install --with-deps chromium
+
+      - name: Run the E2E smoke test against the image
+        env:
+          E2E_BASE_URL: http://localhost:8080
+        run: mise run e2e
+
+      - name: Show the container log
+        if: always()
+        run: docker logs wakewright || true
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-traces
+          path: test-results
+          retention-days: 7
+
+  # The one check to require on main: it fails unless every job above passed.
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [check, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            [ "$r" = success ] || { echo "::error::A required job finished with: $r"; exit 1; }
+          done
