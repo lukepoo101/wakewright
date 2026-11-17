@@ -1,0 +1,19 @@
+{
+  "name": "@wakewright/web",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@wakewright/parent": "workspace:*"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.107.1",
+    "@tanstack/react-router": "1.170.46",
+    "hono": "4.13.18",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

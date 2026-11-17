@@ -1,0 +1,19 @@
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+}
+
+.brand {
+  font-weight: 600;
+}
+
+.main {
+  padding: var(--space-4);
+  max-width: 60rem;
+}

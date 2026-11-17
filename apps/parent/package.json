@@ -1,0 +1,16 @@
+{
+  "name": "@wakewright/parent",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/api/index.ts",
+    "./kiosk/shapes": "./src/kiosk/shapes.ts"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "1.6.3",
+    "hono": "4.13.18",
+    "zod": "4.6.7"
+  }
+}
