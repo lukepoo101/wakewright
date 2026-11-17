@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+
+# Local data written by `mise run dev` and the parent.
+.dev-data/
+data/
+*.sqlite3
+*.sqlite3-*
+
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+
+# Audio never enters the repository: fixtures are generated in code.
+*.wav
+
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.swp
+.idea/
+.vscode/

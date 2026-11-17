@@ -1,0 +1,20 @@
+{
+  "name": "wakewright-workspace",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": [
+    "apps/*",
+    "devtools/fake-kiosk"
+  ],
+  "scripts": {
+    "build": "bun run build:web && bun run build:server",
+    "build:web": "bun build apps/web/index.html --production --public-path=/ --outdir dist/public",
+    "build:server": "bun build apps/parent/src/main.ts --target=bun --production --outdir dist"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@playwright/test": "1.65.1",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,24 @@
+# Bun configuration for the workspace.
+
+[install]
+# `bun add` writes exact versions, so package.json says what bun.lock holds.
+exact = true
+# Each package sees only the dependencies it declares, so an undeclared
+# (phantom) import fails instead of resolving by accident.
+linker = "isolated"
+# Refuse to resolve any version published less than 3 days ago (259200 s).
+# Bun applies this when it resolves, not on `--frozen-lockfile` installs, so
+# `mise run check` also runs scripts/verify-lockfile-age.ts against bun.lock.
+minimumReleaseAge = 259200
+# Exemptions, by name or exact name@version, each with a reason and a date
+# by which it can be removed. Keep this empty unless a fix cannot wait.
+# minimumReleaseAgeExcludes = ["some-package@1.2.3"]
+
+[test]
+# Playwright owns tests/e2e (`mise run e2e`); `bun test` would otherwise pick
+# up its *.spec.ts files.
+pathIgnorePatterns = ["tests/e2e/**"]
+
+[fmt]
+# `bun fmt` is Prettier-compatible; Prettier's defaults otherwise.
+printWidth = 100

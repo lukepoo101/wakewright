@@ -1,0 +1,32 @@
+# Toolchain pins and the project's tasks. CI runs the same tasks.
+# See docs/development.md.
+
+[tools]
+bun = "1.4.4"
+
+[tasks.setup]
+description = "Install dependencies from the lockfile"
+run = "bun install --frozen-lockfile"
+
+[tasks.dev]
+description = "Run the parent with HMR and two fake Kiosk Satellite devices"
+run = "bun devtools/dev.ts"
+
+[tasks.build]
+description = "Build the SPA and the server bundle into dist/"
+run = "bun run build"
+
+[tasks.check]
+description = "Everything CI checks except the image build and E2E (also the pre-push hook)"
+run = [
+  "bun scripts/check-versions.ts",
+  "bun scripts/verify-lockfile-age.ts",
+  "bun fmt --check",
+  "bunx biome lint --error-on-warnings",
+  "bun check",
+  "bun test",
+]
+
+[tasks.e2e]
+description = "Playwright smoke test: builds and starts dist/, or tests E2E_BASE_URL"
+run = "bunx --bun playwright test"
