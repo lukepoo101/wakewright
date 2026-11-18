@@ -15,11 +15,12 @@ It works with [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite)
 devices over their HTTP API. Wakewright only reads from a device; it never
 changes its settings or installs anything on it.
 
-> **Status: pre-alpha.** v0.0.1 collects Kiosk Satellite clips, stores
-> them, and lets you browse and play them in a web UI. There is no stable
-> release yet. [Pre-releases](https://github.com/lukepoo101/wakewright/releases)
-> and `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64, built from
-> every merge to `main`) are for testing.
+> **Status: pre-alpha.** v0.0.1, the first release, collects Kiosk
+> Satellite clips, stores them, and lets you browse and play them in a web
+> UI. The image is `ghcr.io/lukepoo101/wakewright` for amd64 and arm64:
+> `0.0.1` (also `0.0` and `latest`) for the
+> [release](https://github.com/lukepoo101/wakewright/releases), and `edge`,
+> built from every merge to `main`, for testing.
 
 ## Using it
 
