@@ -9,16 +9,16 @@ import { createLogger } from "./log.ts";
 
 const config = loadConfig();
 const log = createLogger(config.log.level);
-const { api } = boot(config, log);
+const { api } = await boot(config, log);
 
 const server = Bun.serve({
   hostname: config.server.host,
   port: config.server.port,
   development: true,
   routes: {
-    "/api/*": (req) => api.fetch(req),
-    "/healthz": (req) => api.fetch(req),
-    "/readyz": (req) => api.fetch(req),
+    "/api/*": (req, server) => api.fetch(req, server),
+    "/healthz": (req, server) => api.fetch(req, server),
+    "/readyz": (req, server) => api.fetch(req, server),
     "/*": index,
   },
 });

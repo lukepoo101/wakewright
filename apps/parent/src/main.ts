@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { Hono } from "hono";
 import { logger as requestLogger } from "hono/logger";
+import { secureHeaders } from "hono/secure-headers";
 import { boot } from "./boot.ts";
 import { loadConfig } from "./config.ts";
 import { openDatabase } from "./db/db.ts";
@@ -18,7 +19,7 @@ const command = process.argv[2] ?? "serve";
 
 switch (command) {
   case "serve":
-    serve();
+    await serve();
     break;
   case "migrate": {
     const db = openDatabase(config.storage.dbPath);
@@ -36,11 +37,26 @@ switch (command) {
     process.exitCode = 2;
 }
 
-function serve() {
-  const { db, api } = boot(config, log);
+async function serve() {
+  const booted = await boot(config, log);
   const app = new Hono();
   app.use(requestLogger((line) => log.debug(line)));
-  app.route("/", api);
+  app.use(
+    secureHeaders({
+      contentSecurityPolicy: {
+        defaultSrc: ["'self'"],
+        // wavesurfer.js renders into a shadow root with its own <style>.
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        mediaSrc: ["'self'", "blob:"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        formAction: ["'self'"],
+      },
+    }),
+  );
+  app.route("/", booted.api);
   if (!mountSpa(app, config.server.staticDir)) {
     log.warn("no SPA build found; serving the API only", { staticDir: config.server.staticDir });
   }
@@ -55,7 +71,7 @@ function serve() {
   const stop = async (signal: string) => {
     log.info("stopping", { signal });
     await server.stop();
-    db.close();
+    await booted.stop();
     process.exit(0);
   };
   process.on("SIGTERM", () => void stop("SIGTERM"));

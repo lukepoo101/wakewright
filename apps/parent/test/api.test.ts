@@ -3,16 +3,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { createApi } from "../src/api/index.ts";
 import { openDatabase } from "../src/db/db.ts";
-import { migrate } from "../src/db/migrate.ts";
 import { mountSpa } from "../src/spa.ts";
 import { version } from "../src/version.ts";
+import { testApi } from "./helpers.ts";
 
 function migratedApi() {
-  const db = openDatabase(":memory:");
-  migrate(db);
-  return createApi({ db });
+  return testApi().api;
 }
 
 describe("health", () => {
@@ -29,7 +26,7 @@ describe("health", () => {
   });
 
   test("/readyz is not ready on an unmigrated database", async () => {
-    const res = await createApi({ db: openDatabase(":memory:") }).request("/readyz");
+    const res = await testApi({ db: openDatabase(":memory:") }).api.request("/readyz");
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ status: "not_ready" });
   });
@@ -46,7 +43,7 @@ describe("API", () => {
   test("unknown API paths answer JSON 404", async () => {
     const res = await migratedApi().request("/api/nope");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "not_found" });
+    expect(await res.json()).toMatchObject({ error: "not_found" });
   });
 });
 

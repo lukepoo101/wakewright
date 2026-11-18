@@ -58,13 +58,7 @@ mise run build
 WAKEWRIGHT__STORAGE__DATA_DIR=/tmp/ww bun dist/main.js serve
 ```
 
-| Variable                         | Default                       | Meaning                            |
-| -------------------------------- | ----------------------------- | ---------------------------------- |
-| `WAKEWRIGHT__SERVER__HOST`       | `0.0.0.0`                     | Listen address                     |
-| `WAKEWRIGHT__SERVER__PORT`       | `8080`                        | Listen port                        |
-| `WAKEWRIGHT__SERVER__STATIC_DIR` | `public/` next to the bundle  | The built SPA                      |
-| `WAKEWRIGHT__STORAGE__DATA_DIR`  | `data` (`/data` in the image) | Database, backups and blobs        |
-| `WAKEWRIGHT__LOG__LEVEL`         | `info`                        | `debug`, `info`, `warn` or `error` |
+Every environment variable is listed in [configuration.md](configuration.md).
 
 ## Container image
 
