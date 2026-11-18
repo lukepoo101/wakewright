@@ -89,9 +89,19 @@ gh attestation verify oci://ghcr.io/lukepoo101/wakewright:0.0.1 \
   --signer-workflow lukepoo101/wakewright/.github/workflows/publish.yml
 ```
 
-It prints the digest it verified and the commit and workflow run that built
+cosign 3 verifies the same attestation (it is a Sigstore bundle):
+
+```sh
+cosign verify-attestation --new-bundle-format --type slsaprovenance1 \
+  --certificate-identity https://github.com/lukepoo101/wakewright/.github/workflows/publish.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/lukepoo101/wakewright:0.0.1
+```
+
+`gh attestation verify` prints the digest it verified and the commit and workflow run that built
 it. Pin that digest in Compose or Kubernetes
 (`ghcr.io/lukepoo101/wakewright@sha256:...`) so the image cannot change
-under you. Each platform's SPDX SBOM is in the registry
-(`docker buildx imagetools inspect ghcr.io/lukepoo101/wakewright:0.0.1 --format '{{ json .SBOM }}'`)
+under you. Each platform has two SPDX SBOMs, one for the runtime image and one for the
+build stage (the npm packages bundled into `main.js`). Both are in the
+registry (`docker buildx imagetools inspect ghcr.io/lukepoo101/wakewright:0.0.1 --format '{{ json .SBOM }}'`)
 and attached to the GitHub release.
