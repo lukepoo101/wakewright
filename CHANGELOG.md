@@ -7,13 +7,13 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.3.0-rc.1 - 2026-11-18
+## 0.3.0 - 2026-11-18
 
 ### Breaking changes
 
 - Configure weighted judges on a Judges page, with cloud speech-to-text judges by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/42
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.2.0...v0.3.0-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.2.0...v0.3.0
 
 ## 0.2.0 - 2026-11-18
 
