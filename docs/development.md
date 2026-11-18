@@ -2,8 +2,8 @@
 
 ## Tools
 
-[mise](https://mise.jdx.dev) installs the pinned Bun (`mise.toml`) and runs
-the project's tasks. Bun is the runtime, package manager, bundler, test
+[mise](https://mise.jdx.dev) installs the pinned Bun and linters (`mise.toml`)
+and runs the project's tasks. Bun is the runtime, package manager, bundler, test
 runner, type checker (`bun check`) and formatter (`bun fmt`). Biome does
 linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling.md)).
 
@@ -30,6 +30,13 @@ linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling
 5. `bun check`: TypeScript, one `tsconfig.json` for the workspace.
 6. `bun test`: unit and in-process integration tests (`tests/e2e` excluded
    in `bunfig.toml`).
+7. `scripts/check-licences.ts`: every installed package is under a
+   permissive licence on the script's allow list (MIT, Apache-2.0, BSD, ISC
+   and similar); anything else needs a decision in the pull request.
+8. `actionlint` (with shellcheck) and `zizmor`: workflow correctness and
+   security (template injection, credential persistence, over-broad
+   permissions). zizmor runs its online audits too when `GH_TOKEN` is set.
+9. `hadolint`: Dockerfile lint.
 
 Install it as a pre-push hook with
 `mise generate git-pre-commit --write --hook pre-push --task check`.
@@ -64,19 +71,34 @@ Docker is not needed locally; CI builds and tests the image.
 
 ## CI
 
-One workflow, `.github/workflows/ci.yml`, runs on pull requests, the merge
-queue and pushes to `main`:
+`.github/workflows/ci.yml` runs on every pull request (forks included) and
+every push to `main`:
 
-| Job                      | What it does                                                                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Check / mise run check` | installs the pinned Bun with mise, then `mise run setup` and `mise run check`                                                                                 |
-| `Image / build + E2E`    | builds the image (not pushed), checks it holds no Python or native addons, runs it read-only, waits for its health check, then runs `mise run e2e` against it |
-| `CI OK`                  | passes only if both jobs passed; the one check to require on `main`                                                                                           |
+| Job                           | What it does                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Check / mise run check`      | installs the pinned tools with mise, then `mise run setup` and `mise run check`                                                                               |
+| `Image / build + E2E (amd64)` | builds the image (not pushed), checks it holds no Python or native addons, runs it read-only, waits for its health check, then runs `mise run e2e` against it |
+| `Image / build + E2E (arm64)` | the same on a native arm64 runner                                                                                                                             |
+| `Dependencies / review`       | pull requests only: fails if the pull request adds a dependency with a known advisory of moderate severity or worse                                           |
+| `CI OK`                       | passes only if every job above passed (or was skipped by its own condition); the one check required on `main`                                                 |
 
-Rules: actions pinned by commit SHA, `permissions: {}` at the top and
-`contents: read` per job, no persisted checkout credentials, superseded
-pull request runs cancelled. Caches (mise, Bun packages, Docker layers) are
-written only by `main` and read by everyone, so pull requests cannot evict
-`main`'s caches. Playwright's Chromium headless shell is downloaded each run, as
-Playwright recommends, without `--with-deps`: the runner image already has
-Chrome's system libraries, and the apt step took minutes on slow mirrors.
+CodeQL (GitHub's default setup, JavaScript/TypeScript and Actions) runs
+beside it on every pull request; the `main` ruleset blocks a merge on its
+alerts. Other workflows: `dependency-health.yml` (daily `bun audit` of
+`main`, reported in one self-closing issue) and `scorecard.yml` (weekly
+OpenSSF Scorecard).
+
+Rules: actions pinned by commit SHA, `permissions: {}` at the top and the
+least each job needs, no persisted checkout credentials, no
+`pull_request_target`, no secrets in pull request jobs, superseded pull
+request runs cancelled (runs on `main` are never cancelled). Caches (mise,
+Bun packages, Docker layers per architecture) are written only by `main` and
+read by everyone, so pull requests cannot evict `main`'s caches. Playwright's
+Chromium headless shell is downloaded each run, as Playwright recommends,
+without `--with-deps`: the runner images already have Chrome's system
+libraries.
+
+An advisory published against a dependency `main` already has does not fail
+pull requests: dependency review compares only what a pull request changes,
+and the daily health run reports the rest. See
+[ADR 0009](adr/0009-ci-checks-and-fork-safety.md).
