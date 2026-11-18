@@ -36,6 +36,10 @@ run = [
   # Online audits too when GH_TOKEN is set (CI sets it); offline otherwise.
   "zizmor --no-progress .",
   "hadolint deploy/docker/*.Dockerfile",
+  # Renovate's own validator, from a release at least 3 days old. Renovate
+  # (monthly) keeps this version current; --ignore-scripts skips the native
+  # re2 build, which Bun cannot load (the validator falls back to RegExp).
+  "bunx --bun --ignore-scripts --minimum-release-age 259200 --package renovate@44.239.1 renovate-config-validator --strict --no-global renovate.json",
 ]
 
 [tasks.e2e]

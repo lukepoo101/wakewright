@@ -37,6 +37,8 @@ linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling
    security (template injection, credential persistence, over-broad
    permissions). zizmor runs its online audits too when `GH_TOKEN` is set.
 9. `hadolint`: Dockerfile lint.
+10. `renovate-config-validator --strict`: `renovate.json` is valid and uses
+    no deprecated options ([dependency updates](dependency-updates.md)).
 
 Install it as a pre-push hook with
 `mise generate git-pre-commit --write --hook pre-push --task check`.
