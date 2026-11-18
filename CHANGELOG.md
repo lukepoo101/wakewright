@@ -7,6 +7,15 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.4.0-rc.1 - 2026-11-18
+
+### New features
+
+- Pick a new judge's type from a drop-down on the Judges page by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/48
+- Add collection sessions that boost one tablet's wake word sensitivity for a time limit, then put it back by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/49
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.3.1...v0.4.0-rc.1
+
 ## 0.3.1 - 2026-11-18
 
 ### Fixes
