@@ -3,7 +3,8 @@
 A worker judges clips for a Wakewright parent. It needs no inbound port: it
 calls the parent over HTTP(S), claims clips, downloads their audio, runs its
 judges and sends back their verdicts. Wakewright's own worker lives in
-`apps/worker`; this page is for anyone writing another. The exact wire
+`apps/worker` ([running it](worker.md)); this page is for anyone writing
+another. The exact wire
 format is [`docs/api/worker-v1.openapi.json`](api/worker-v1.openapi.json)
 (OpenAPI 3.1), which is the source of truth; the decisions behind it are in
 [ADR 0016](adr/0016-judging-queue-and-agreement.md).

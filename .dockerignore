@@ -6,6 +6,8 @@
 !LICENSE
 !NOTICE
 !apps/**
+# The worker is Python with its own image (worker.Dockerfile.dockerignore).
+apps/worker
 !devtools/fake-kiosk/package.json
 **/node_modules
 **/test

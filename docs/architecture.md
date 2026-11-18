@@ -89,6 +89,31 @@ word clips, store them, and browse and play them.
   is migrated and writable). The image's `HEALTHCHECK` runs
   `main.js healthcheck`, because the distroless base has no shell or curl.
 
+## The worker
+
+```
+ parent ◄──── HTTP(S), outbound only ────┐
+ /api/worker/v1: claim, audio, results   │
+                     ┌─────────────── worker (one Python process) ───────────────┐
+                     │ loop.py: claim (long poll) → audio → judges → results     │
+                     │ judges/: openwakeword · microwakeword · stt (Parakeet)    │
+                     │ models.py: pinned downloads ──► cache dir (/cache)        │
+                     └───────────────────────────────────────────────────────────┘
+```
+
+`apps/worker` is Wakewright's own worker: Python 3.13, uv, a headless core
+with a console entry point (`wakewright-worker`), configured by
+`WAKEWRIGHT_WORKER__*` variables, so the same code runs in its image, under
+`uv run` on any machine and later inside a desktop wrapper. Each judge
+implements one small protocol (`judges/__init__.py`); its models are
+downloaded on first use into the cache directory, pinned by revision and
+SHA-256, and never shipped ([models.md](models.md)). The loop prepares the
+judges, offers the ready ones in each claim, judges each clip, reports a
+judge that fails as `abstain`, backs off while the parent is unreachable
+and stops cleanly on SIGTERM. It holds no state of its own: any number can
+run. Running it: [worker.md](worker.md); decisions:
+[ADR 0017](adr/0017-the-worker.md).
+
 ## Repository layout
 
 ```
@@ -119,12 +144,20 @@ apps/web/             @wakewright/web: the SPA
   src/pages/          one component per screen, routed in router.tsx (AuthPages: setup, sign-in)
   src/player.tsx      the shared <audio> element for list playback
   src/components/     shared components (AudioPlayer: wavesurfer.js waveform)
+apps/worker/          wakewright-worker: the Python worker (uv project, not a Bun workspace)
+  src/wakewright_worker/  cli.py, config.py, client.py, loop.py, models.py, audio.py, log.py
+    judges/           openwakeword.py, microwakeword.py, stt.py; fake.py for tests
+  tests/              pytest: fakes.py (fake parent, fake judges), unit and contract tests;
+                      test_real_models.py is opt-in (`-m models`)
+  scripts/            check_licences.py, check_lock_age.py (run by `mise run check:worker`)
+  pyproject.toml uv.lock
 devtools/
   dev.ts              `mise run dev`: parent + two fake devices + the fake worker
+  worker-integration.ts `mise run integration`: parent + fake device + the real worker loop
   fake-kiosk/         @wakewright/fake-kiosk: fake device + synthetic clips
   fake-worker/        @wakewright/fake-worker: a worker with deterministic fake verdicts
-deploy/docker/        parent.Dockerfile
-deploy/compose/       docker-compose.yml: the reference Compose file
+deploy/docker/        parent.Dockerfile; worker.Dockerfile (+ its .dockerignore)
+deploy/compose/       docker-compose.yml: the reference Compose file (parent + worker)
 scripts/              repository checks run by `mise run check`; worker-openapi.ts writes docs/api/
 tests/e2e/            Playwright: smoke tests and the first-run path against a fake device
 docs/                 this documentation and the ADRs
@@ -174,3 +207,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0014 [The device settings a clip was recorded under](adr/0014-device-settings-of-a-clip.md)
 - 0015 [Sign-in can be turned off for an authenticating proxy](adr/0015-sign-in-off-behind-a-proxy.md)
 - 0016 [Judging: a derived queue with leases, a shared token, unweighted agreement](adr/0016-judging-queue-and-agreement.md)
+- 0017 [The worker: Python with uv, three downloaded judges, a second image](adr/0017-the-worker.md)

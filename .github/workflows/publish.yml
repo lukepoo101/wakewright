@@ -1,8 +1,11 @@
 name: Publish
 
-# Publishes the parent image from main, and cuts a release when the merged
-# commit carries a version that has no tag yet (a "Release X.Y.Z" pull
-# request made by `mise run release`; see docs/RELEASING.md).
+# Publishes both images from main, the parent (ghcr.io/OWNER/wakewright) and
+# the worker (ghcr.io/OWNER/wakewright-worker), under one version, and cuts a
+# release when the merged commit carries a version that has no tag yet (a
+# "Release X.Y.Z" pull request made by `mise run release`; see
+# docs/RELEASING.md). The two images are built, scanned, attested and tagged
+# the same way, side by side; the release covers both.
 #
 # Called by ci.yml after `CI OK` passes on a push to main, so nothing is
 # published from a commit that failed CI and nothing here ever runs for a
@@ -16,7 +19,6 @@ on:
 permissions: {}
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
   DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
@@ -67,21 +69,31 @@ jobs:
           echo "Version $version, release: $release, pre-release: $prerelease" >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: build (${{ matrix.arch }})
+    name: build (${{ matrix.image }}, ${{ matrix.arch }})
     needs: meta
     strategy:
       fail-fast: true
       matrix:
+        image: [wakewright, wakewright-worker]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+          - image: wakewright
+            dockerfile: deploy/docker/parent.Dockerfile
+            scope: parent
+          - image: wakewright-worker
+            dockerfile: deploy/docker/worker.Dockerfile
+            scope: worker
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,7 +107,7 @@ jobs:
           images: ${{ env.IMAGE }}
           labels: |
             org.opencontainers.image.version=${{ needs.meta.outputs.version }}
-            org.opencontainers.image.title=wakewright
+            org.opencontainers.image.title=${{ matrix.image }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -110,19 +122,19 @@ jobs:
       # Pushed by digest only; the merge job tags the multi-arch index.
       # Reads the layer cache CI on main just wrote for this architecture.
       # The SBOM (BuildKit, SPDX) covers the runtime image and the build
-      # stage, where the bundled npm packages are visible.
+      # stage, where the parent's bundled npm packages are visible.
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: deploy/docker/parent.Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.labels.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           sbom: true
           provenance: mode=max
-          cache-from: type=gha,scope=parent-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.scope }}-${{ matrix.arch }}
 
       - name: Record the digest
         env:
@@ -134,14 +146,22 @@ jobs:
       - name: Upload the digest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: digest-${{ matrix.arch }}
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           retention-days: 1
           if-no-files-found: error
 
   image:
-    name: image
+    name: image (${{ matrix.image }})
     needs: [meta, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: wakewright
+            description: "Wakewright parent: collects and stores wake word clips"
+          - image: wakewright-worker
+            description: "Wakewright worker: judges wake word clips for the Wakewright parent"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -152,9 +172,9 @@ jobs:
       attestations: write
       # Image scan results go to code scanning.
       security-events: write
-    outputs:
-      digest: ${{ steps.index.outputs.digest }}
     env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+      DESCRIPTION: ${{ matrix.description }}
       VERSION: ${{ needs.meta.outputs.version }}
       RELEASE: ${{ needs.meta.outputs.release }}
       PRERELEASE: ${{ needs.meta.outputs.prerelease }}
@@ -163,7 +183,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digest-*
+          pattern: digest-${{ matrix.image }}-*
           merge-multiple: true
 
       - name: Set up Buildx
@@ -190,7 +210,7 @@ jobs:
           # shellcheck disable=SC2046 # one argument per digest file
           docker buildx imagetools create -t "$IMAGE:$short" \
             --annotation "index:org.opencontainers.image.source=$SOURCE" \
-            --annotation "index:org.opencontainers.image.description=Wakewright parent: collects and stores wake word clips" \
+            --annotation "index:org.opencontainers.image.description=$DESCRIPTION" \
             --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
             --annotation "index:org.opencontainers.image.version=$VERSION" \
             --annotation "index:org.opencontainers.image.revision=$SHA" \
@@ -221,7 +241,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: image
+          category: image-${{ matrix.image }}
 
       # GitHub artifact attestation (SLSA build provenance), signed with
       # Sigstore under this workflow's identity and pushed to the registry
@@ -260,7 +280,7 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
       PRERELEASE: ${{ needs.meta.outputs.prerelease }}
-      DIGEST: ${{ needs.image.outputs.digest }}
+      REGISTRY: ghcr.io/${{ github.repository_owner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -275,10 +295,12 @@ jobs:
           password: ${{ github.token }}
 
       # The release notes are the version's CHANGELOG.md section, followed
-      # by the image reference and how to verify it.
+      # by both images' references and how to verify them. Each image's
+      # digest is read back from its immutable `sha-<short>` tag.
       - name: Write the release notes and assets
         env:
           REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           notes="$RUNNER_TEMP/notes.md"
           awk -v v="$VERSION" '
@@ -289,28 +311,33 @@ jobs:
             echo "::error::CHANGELOG.md has no section for $VERSION."
             exit 1
           fi
-          cat >> "$notes" <<EOF
+          mkdir -p "$RUNNER_TEMP/assets"
+          printf '\n### Container images\n' >> "$notes"
+          for name in wakewright wakewright-worker; do
+            image="$REGISTRY/$name"
+            digest=$(docker buildx imagetools inspect "$image:sha-${SHA::7}" --format '{{json .Manifest}}' | jq -r .digest)
+            cat >> "$notes" <<EOF
 
-          ### Container image
+          \`$name\`:
 
           \`\`\`sh
-          docker pull $IMAGE:$VERSION
+          docker pull $image:$VERSION
           # or by digest
-          docker pull $IMAGE@$DIGEST
+          docker pull $image@$digest
           # verify its build provenance
-          gh attestation verify oci://$IMAGE:$VERSION --repo $REPO \\
+          gh attestation verify oci://$image:$VERSION --repo $REPO \\
             --signer-workflow $REPO/.github/workflows/publish.yml
           \`\`\`
           EOF
-          mkdir -p "$RUNNER_TEMP/assets"
-          # Two SBOMs per platform: the runtime image (Debian packages and
-          # Bun) and the build stage (the npm packages bundled into main.js).
-          for arch in amd64 arm64; do
-            base="$RUNNER_TEMP/assets/wakewright-$VERSION-linux-$arch"
-            docker buildx imagetools inspect "$IMAGE@$DIGEST" \
-              --format "{{ json (index .SBOM \"linux/$arch\") }}" > "$RUNNER_TEMP/sbom.json"
-            jq -e '.SPDX' "$RUNNER_TEMP/sbom.json" > "$base.spdx.json"
-            jq -e '.AdditionalSPDXs[0]' "$RUNNER_TEMP/sbom.json" > "$base-build.spdx.json"
+            # Two SBOMs per platform: the runtime image and its build stage
+            # (for the parent, the npm packages bundled into main.js).
+            for arch in amd64 arm64; do
+              base="$RUNNER_TEMP/assets/$name-$VERSION-linux-$arch"
+              docker buildx imagetools inspect "$image@$digest" \
+                --format "{{ json (index .SBOM \"linux/$arch\") }}" > "$RUNNER_TEMP/sbom.json"
+              jq -e '.SPDX' "$RUNNER_TEMP/sbom.json" > "$base.spdx.json"
+              jq -e '.AdditionalSPDXs[0]' "$RUNNER_TEMP/sbom.json" > "$base-build.spdx.json"
+            done
           done
           ls -l "$RUNNER_TEMP/assets"
 

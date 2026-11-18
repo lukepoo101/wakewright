@@ -1,6 +1,6 @@
 name: Dependency health
 
-# Daily audit of what main already depends on and of the published image.
+# Daily audit of what main already depends on and of the published images.
 # New advisories against existing dependencies land here, in one issue,
 # instead of failing every
 # open pull request (pull requests are gated only on what they add, by the
@@ -46,7 +46,7 @@ jobs:
           cache_save: false
 
       - name: Install dependencies
-        run: mise run setup
+        run: bun install --frozen-lockfile
 
       # Records the outcome instead of failing here, so the issue step
       # always runs; the last step fails the job when anything was found.
@@ -61,12 +61,14 @@ jobs:
       # The newest stable release, or `edge` until there is one: what users
       # run. Counted as findings: fixable vulnerabilities of high or
       # critical severity (the same bar a release must pass).
-      - name: Pick the image to scan
+      - name: Pick the images to scan
         id: image
         run: |
-          image="ghcr.io/$GITHUB_REPOSITORY:latest"
-          docker manifest inspect "$image" > /dev/null 2>&1 || image="ghcr.io/$GITHUB_REPOSITORY:edge"
-          echo "ref=$image" >> "$GITHUB_OUTPUT"
+          for name in "" "-worker"; do
+            image="ghcr.io/$GITHUB_REPOSITORY$name:latest"
+            docker manifest inspect "$image" > /dev/null 2>&1 || image="ghcr.io/$GITHUB_REPOSITORY$name:edge"
+            echo "ref${name//-/_}=$image" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Scan the image
         id: scan
@@ -80,18 +82,32 @@ jobs:
           output-format: json
           output-file: ${{ runner.temp }}/image-scan.json
 
+      - name: Scan the worker image
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ steps.image.outputs.ref_worker }}
+          cache-db: true
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: false
+          output-format: json
+          output-file: ${{ runner.temp }}/worker-image-scan.json
+
       - name: Open, update or close the health issue
         env:
           GH_TOKEN: ${{ github.token }}
           BUN_AUDIT_EXIT: ${{ steps.bun-audit.outputs.exit }}
           IMAGE_REF: ${{ steps.image.outputs.ref }}
+          WORKER_IMAGE_REF: ${{ steps.image.outputs.ref_worker }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           number=$(gh issue list --state open --label dependencies --json number,title \
             --jq "map(select(.title == \"$ISSUE_TITLE\"))[0].number // empty")
-          image_findings=$(jq '.matches | length' "$RUNNER_TEMP/image-scan.json")
-          jq -r '.matches[] | "\(.artifact.name) \(.artifact.version): \(.vulnerability.id) (\(.vulnerability.severity)), fixed in \(.vulnerability.fix.versions | join(", "))"' \
-            "$RUNNER_TEMP/image-scan.json" > "$RUNNER_TEMP/image-scan.txt"
+          image_findings=$(jq -s 'map(.matches | length) | add' "$RUNNER_TEMP/image-scan.json" "$RUNNER_TEMP/worker-image-scan.json")
+          for scan in image-scan worker-image-scan; do
+            jq -r '.matches[] | "\(.artifact.name) \(.artifact.version): \(.vulnerability.id) (\(.vulnerability.severity)), fixed in \(.vulnerability.fix.versions | join(", "))"' \
+              "$RUNNER_TEMP/$scan.json" > "$RUNNER_TEMP/$scan.txt"
+          done
           echo "image_findings=$image_findings" >> "$GITHUB_ENV"
           if [ "$BUN_AUDIT_EXIT" = 0 ] && [ "$image_findings" = 0 ]; then
             if [ -n "$number" ]; then
@@ -113,13 +129,16 @@ jobs:
             cat "$RUNNER_TEMP/bun-audit.txt"
             echo '```'
             echo
-            echo "## Image: \`$IMAGE_REF\`"
-            echo
-            echo "Fixable vulnerabilities of high or critical severity:"
-            echo
-            echo '```text'
-            cat "$RUNNER_TEMP/image-scan.txt"
-            echo '```'
+            for pair in "$IMAGE_REF:image-scan" "$WORKER_IMAGE_REF:worker-image-scan"; do
+              echo "## Image: \`${pair%:*}\`"
+              echo
+              echo "Fixable vulnerabilities of high or critical severity:"
+              echo
+              echo '```text'
+              cat "$RUNNER_TEMP/${pair##*:}.txt"
+              echo '```'
+              echo
+            done
           } > "$RUNNER_TEMP/body.md"
           if [ -n "$number" ]; then
             gh issue edit "$number" --body-file "$RUNNER_TEMP/body.md"

@@ -5,13 +5,18 @@ Instructions for AI coding agents working on Wakewright. Humans should read
 
 ## Commands
 
-- `mise run setup`: install dependencies (`bun install --frozen-lockfile`).
+- `mise run setup`: install dependencies (`bun install --frozen-lockfile`,
+  `uv sync --frozen` in `apps/worker`).
 - `mise run check`: versions, lockfile age, format, lint, types and unit
-  tests. Run it before every push; it must pass. Never bypass Git hooks.
+  tests for both languages (`check:repo`, `check:bun`, `check:worker`). Run
+  it before every push; it must pass. Never bypass Git hooks.
 - `bun fmt`: fix formatting. `bun test <path>`: run some tests.
 - `mise run e2e`: Playwright smoke test against the production build.
 - `mise run dev`: parent on :8080, rebuilt on change, plus fake devices on
   :23241/:23242 (password `dev`) and a fake worker that judges every clip.
+- `mise run integration`: the parent and the real worker loop with fake
+  judges, together. `mise run worker-models-test`: the worker's real models
+  (downloads about 2.5 GB; never needed for unit tests).
 - `mise run openapi`: rewrite `docs/api/worker-v1.openapi.json` after
   changing the worker API (a unit test fails while it is stale).
 - `mise run release <version>`: open the release pull request (maintainer
@@ -37,6 +42,19 @@ Do not add `check` or `fmt` scripts to a `package.json`: `bun check` and
   changes the device.
 - No real audio, credentials or third-party assets in the repository; test
   audio is generated in code (`devtools/fake-kiosk/src/synth.ts`).
+- The worker (`apps/worker`) is Python 3.13 with uv: `uv add --exact`,
+  `uv.lock` committed, ruff for format and lint, pyright strict, pytest.
+  Configuration is `WAKEWRIGHT_WORKER__KEY` variables in `config.py`; keep
+  it a headless core with no Docker-only assumptions (paths from config,
+  `pathlib`, dependencies with Windows wheels). A judge implements the
+  `Judge` protocol in `judges/__init__.py` and changes its `version` when
+  its model or logic changes.
+- Never commit or bake a model into an image: judges download pinned,
+  checksummed files on first use (`models.py`; list each in
+  `docs/models.md` with its licence). Worker tests use fake judges and the
+  fake parent in `apps/worker/tests/fakes.py` and never touch the network.
+- The worker API's wire format is `docs/api/worker-v1.openapi.json`; the
+  worker's contract tests read it.
 - Dependencies are pinned exactly; actions by commit SHA; images by digest.
 - British English in docs and UI text, sentence-case headings.
 

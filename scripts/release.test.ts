@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { insert, previousTag, section } from "./release.ts";
+import { insert, previousTag, pythonVersion, section, setPythonVersion } from "./release.ts";
 
 const tags = ["v0.0.0", "v0.0.1-rc.1", "v0.0.1-rc.2", "v0.0.1", "v0.1.0-rc.1"];
 
@@ -41,4 +41,16 @@ test("the first section goes under the introduction", () => {
   expect(insert("# Changelog\n\nIntro.\n", "0.0.1-rc.1", "## 0.0.1-rc.1 - d\n\n- A\n")).toBe(
     "# Changelog\n\nIntro.\n\n## 0.0.1-rc.1 - d\n\n- A\n",
   );
+});
+
+test("the worker's version is the product version in PEP 440 spelling", () => {
+  expect(pythonVersion("0.1.0")).toBe("0.1.0");
+  expect(pythonVersion("0.1.0-rc.1")).toBe("0.1.0rc1");
+  expect(pythonVersion("1.2.3-beta.4")).toBe("1.2.3b4");
+  expect(() => pythonVersion("0.1.0-nightly.1")).toThrow("PEP 440");
+  const pyproject = '[project]\nname = "w"\nversion = "0.0.2"\n\n[tool.x]\nversion = "9"\n';
+  expect(setPythonVersion(pyproject, "0.1.0-rc.2")).toBe(
+    '[project]\nname = "w"\nversion = "0.1.0rc2"\n\n[tool.x]\nversion = "9"\n',
+  );
+  expect(() => setPythonVersion("[project]\n", "0.1.0")).toThrow("no version line");
 });

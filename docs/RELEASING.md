@@ -13,20 +13,27 @@ mise run release 0.0.1
 ```
 
 This opens a pull request titled "Release 0.0.1" that sets the version in
-every workspace package and `bun.lock` and adds the `0.0.1` section to
+every workspace package and `bun.lock`, in the worker's
+`apps/worker/pyproject.toml` and `uv.lock` (in PEP 440 spelling, so
+`0.1.0-rc.1` becomes `0.1.0rc1` there), and adds the `0.0.1` section to
 `CHANGELOG.md`: the pull requests merged since the previous stable release,
 grouped by label. Read the section in the pull request; edit it on the
 branch if an entry needs rewording or regrouping. Then **merge the pull
 request**. That is the release: once `CI OK` passes on the merged commit,
 the `Publish` jobs
 
-1. build the image natively for amd64 and arm64 and push it by digest,
-2. merge them into one index tagged `sha-<short>`, scan it with Grype
-   (a fixable high or critical vulnerability stops the release) and attest
-   its build provenance,
-3. tag it `0.0.1`, `0.0` and `latest` (and `edge`),
+1. build both images, the parent `ghcr.io/lukepoo101/wakewright` and the
+   worker `ghcr.io/lukepoo101/wakewright-worker`, natively for amd64 and
+   arm64 and push them by digest,
+2. merge each into one index tagged `sha-<short>`, scan it with Grype
+   (a fixable high or critical vulnerability in either stops the release)
+   and attest its build provenance,
+3. tag both `0.0.1`, `0.0` and `latest` (and `edge`),
 4. create the `v0.0.1` tag and GitHub release, with the changelog section
-   as its notes and the SPDX SBOMs attached.
+   as its notes, both images' digests and the SPDX SBOMs of both attached.
+
+The two images always carry the same version and tags; run the parent and
+the worker from the same release.
 
 Follow it under Actions → CI for the merge commit. The release page shows
 the image digest.
@@ -79,7 +86,8 @@ in `.github/release.yml`.
 
 ## Verify an image
 
-Each published index has a GitHub artifact attestation: SLSA build
+Both images are verified the same way; replace `wakewright` with
+`wakewright-worker` below for the worker. Each published index has a GitHub artifact attestation: SLSA build
 provenance signed with Sigstore by the `publish.yml` workflow of this
 repository. With the [GitHub CLI](https://cli.github.com):
 
@@ -102,6 +110,7 @@ cosign verify-attestation --new-bundle-format --type slsaprovenance1 \
 it. Pin that digest in Compose or Kubernetes
 (`ghcr.io/lukepoo101/wakewright@sha256:...`) so the image cannot change
 under you. Each platform has two SPDX SBOMs, one for the runtime image and one for the
-build stage (the npm packages bundled into `main.js`). Both are in the
+build stage (for the parent, the npm packages bundled into `main.js`; for
+the worker, the Python packages also listed in the runtime SBOM). Both are in the
 registry (`docker buildx imagetools inspect ghcr.io/lukepoo101/wakewright:0.0.1 --format '{{ json .SBOM }}'`)
 and attached to the GitHub release.

@@ -38,7 +38,9 @@ encrypts device passwords is generated into the volume on first start.
 
 [`deploy/compose/docker-compose.yml`](../deploy/compose/docker-compose.yml)
 sets the admin password and the secret key from files instead, so nothing
-is decided by whoever opens the page first:
+is decided by whoever opens the page first, and runs the
+[worker](worker.md) beside the parent to judge clips, with a shared
+worker token:
 
 ```sh
 mkdir wakewright && cd wakewright
@@ -46,13 +48,17 @@ curl -fsSLO https://raw.githubusercontent.com/lukepoo101/wakewright/main/deploy/
 mkdir -p secrets
 openssl rand -base64 32 > secrets/key
 printf '%s' 'a long admin password' > secrets/admin_password
-chmod 644 secrets/*   # the container runs as uid 10001 and must read them
+openssl rand -base64 32 > secrets/worker_token
+chmod 644 secrets/*   # the containers run as uid 10001 and must read them
 docker compose up -d
 ```
 
 Sign in as `admin` with that password. Edit `WAKEWRIGHT__SERVER__PUBLIC_URL`
 to the address you use. Keep `secrets/key` with your backups: without it,
-stored device passwords cannot be read (clips are unaffected).
+stored device passwords cannot be read (clips are unaffected). The worker
+downloads its models (about 2.5 GB) into its `worker-cache` volume on first
+start; delete the `worker` service to collect clips without judging them,
+or run the worker on another machine ([worker.md](worker.md)).
 
 ## Kubernetes and GitOps
 

@@ -7,20 +7,28 @@ table says so, merges itself when `CI OK` passes. Nothing bypasses the
 `main` ruleset. Renovate keeps a Dependency Dashboard issue listing pending
 and rate-limited updates.
 
-| What                                                              | Where                                    | Release age | Automerge                                     | Grouping             |
-| ----------------------------------------------------------------- | ---------------------------------------- | ----------- | --------------------------------------------- | -------------------- |
-| npm packages                                                      | `package.json`, `bun.lock`               | 3 days      | minor and patch (not 0.0.x patches)           | "npm dependencies"   |
-| Bun, `@types/bun`, `typescript`, `oven/bun` images                | `mise.toml`, `package.json`, Dockerfile  | 7 days      | minor and patch                               | "Bun and TypeScript" |
-| Base image digests (rebuilds of the same tag)                     | Dockerfile                               | none        | yes                                           | with Bun             |
-| GitHub Actions (SHA pins with version comments)                   | `.github/workflows/`                     | 7 days      | non-major; majors only for Actions PR CI runs | "GitHub Actions"     |
-| Linters and mise (actionlint, hadolint, shellcheck, zizmor, mise) | `mise.toml`, `MISE_VERSION` in workflows | 7 days      | minor and patch                               | "CI tools"           |
-| The Renovate config validator                                     | `mise.toml` check task                   | 3 days      | yes, at most once a month                     | alone                |
-| Lockfile maintenance (transitive refresh)                         | `bun.lock`                               | 3 days      | yes, Monday mornings                          | alone                |
-| Security fixes                                                    | anywhere                                 | none        | yes                                           | alone                |
+| What                                                              | Where                                            | Release age | Automerge                                     | Grouping              |
+| ----------------------------------------------------------------- | ------------------------------------------------ | ----------- | --------------------------------------------- | --------------------- |
+| npm packages                                                      | `package.json`, `bun.lock`                       | 3 days      | minor and patch (not 0.0.x patches)           | "npm dependencies"    |
+| Bun, `@types/bun`, `typescript`, `oven/bun` images                | `mise.toml`, `package.json`, Dockerfile          | 7 days      | minor and patch                               | "Bun and TypeScript"  |
+| Python packages (the worker)                                      | `apps/worker/pyproject.toml`, `uv.lock`          | 3 days      | minor and patch (not 0.0.x patches)           | "Python dependencies" |
+| Python patch releases and the `python` image                      | `mise.toml`, worker Dockerfile                   | 7 days      | minor and patch, below 3.14                   | "Python"              |
+| uv, its image, `uv_build`, `[tool.uv] required-version`           | `mise.toml`, worker Dockerfile, `pyproject.toml` | 7 days      | minor and patch                               | "uv"                  |
+| Base image digests (rebuilds of the same tag)                     | Dockerfiles                                      | none        | yes                                           | with their group      |
+| GitHub Actions (SHA pins with version comments)                   | `.github/workflows/`                             | 7 days      | non-major; majors only for Actions PR CI runs | "GitHub Actions"      |
+| Linters and mise (actionlint, hadolint, shellcheck, zizmor, mise) | `mise.toml`, `MISE_VERSION` in workflows         | 7 days      | minor and patch                               | "CI tools"            |
+| The Renovate config validator                                     | `mise.toml` check task                           | 3 days      | yes, at most once a month                     | alone                 |
+| Lockfile maintenance (transitive refresh)                         | `bun.lock`, `uv.lock`                            | 3 days      | yes, Monday mornings                          | alone                 |
+| Security fixes                                                    | anywhere                                         | none        | yes                                           | alone                 |
 
 Majors, replacements and rollbacks always wait for a person.
 
 Why:
+
+- **Python's age** is enforced the same way: `[tool.uv] exclude-newer =
+"3 days"` when uv resolves, and `apps/worker/scripts/check_lock_age.py`
+  against `uv.lock` on every check. A new Python minor (3.14) is a decision,
+  not an update: it changes `requires-python` and the worker's wheels.
 
 - **Release age.** Most malicious npm releases are found and pulled within
   days, so nothing younger than 3 days is installed. `bunfig.toml` enforces

@@ -28,8 +28,8 @@
   },
   "packageRules": [
     {
-      "description": "Exact versions in every package.json (bunfig.toml also sets exact = true).",
-      "matchManagers": ["bun", "npm"],
+      "description": "Exact versions in every package.json and apps/worker/pyproject.toml (bunfig.toml and uv add also pin).",
+      "matchManagers": ["bun", "npm", "pep621"],
       "rangeStrategy": "pin"
     },
     {
@@ -56,9 +56,36 @@
       "groupName": "npm dependencies"
     },
     {
+      "description": "Batch routine Python updates for the worker into one pull request (uv.lock is updated with them).",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch", "pin"],
+      "matchPackageNames": ["!uv_build", "!uv-build"],
+      "groupName": "Python dependencies"
+    },
+    {
       "description": "Bun, its types, TypeScript and the oven/bun base images move together: scripts/check-versions.ts fails when they differ.",
       "matchPackageNames": ["bun", "oven/bun", "@types/bun", "typescript"],
       "groupName": "Bun and TypeScript",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Python (mise.toml and the worker's python base image) moves as one; scripts/check-versions.ts fails when they differ. Patches only: a new minor is a decision (pyproject.toml's requires-python).",
+      "matchPackageNames": ["python", "docker.io/library/python"],
+      "groupName": "Python",
+      "allowedVersions": "<3.14",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "uv (mise.toml, the uv image, uv_build and [tool.uv] required-version) moves as one; scripts/check-versions.ts fails when they differ.",
+      "matchPackageNames": [
+        "uv",
+        "astral-sh/uv",
+        "ghcr.io/astral-sh/uv",
+        "uv_build",
+        "uv-build",
+        "uv-required-version"
+      ],
+      "groupName": "uv",
       "minimumReleaseAge": "7 days"
     },
     {
@@ -120,6 +147,15 @@
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v(?<version>.+)$",
       "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "The uv version apps/worker/pyproject.toml requires (kept equal to mise.toml's uv).",
+      "managerFilePatterns": ["/^apps/worker/pyproject\\.toml$/"],
+      "matchStrings": ["required-version = \"==(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "uv-required-version",
+      "packageNameTemplate": "uv",
+      "datasourceTemplate": "pypi"
     }
   ]
 }

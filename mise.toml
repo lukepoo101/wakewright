@@ -3,6 +3,10 @@
 
 [tools]
 bun = "1.4.4"
+# The worker (apps/worker). scripts/check-versions.ts keeps the worker
+# Dockerfile's python and uv images and pyproject.toml on these versions.
+python = "3.13.18"
+uv = "0.13.7"
 # Linters for the workflows and the Dockerfile, used by `mise run check`.
 actionlint = "1.7.12"
 hadolint = "2.15.1"
@@ -11,8 +15,8 @@ shellcheck = "0.11.0"
 zizmor = "1.32.0"
 
 [tasks.setup]
-description = "Install dependencies from the lockfile"
-run = "bun install --frozen-lockfile"
+description = "Install dependencies from the lockfiles (bun.lock, apps/worker/uv.lock)"
+run = ["bun install --frozen-lockfile", "uv sync --frozen --project apps/worker"]
 
 [tasks.dev]
 description = "Run the parent (rebuilt on change) and two fake Kiosk Satellite devices"
@@ -23,15 +27,13 @@ description = "Build the SPA and the server bundle into dist/"
 run = "bun run build"
 
 [tasks.check]
-description = "Everything CI checks except the image build and E2E (also the pre-push hook)"
+description = "Everything CI checks except the image builds and E2E (also the pre-push hook)"
+depends = ["check:repo", "check:bun", "check:worker"]
+
+[tasks."check:repo"]
+description = "Checks that span the repository: versions, workflows, Dockerfiles, Renovate"
 run = [
   "bun scripts/check-versions.ts",
-  "bun scripts/verify-lockfile-age.ts",
-  "bun fmt --check",
-  "bunx biome lint --error-on-warnings",
-  "bun check",
-  "bun test",
-  "bun scripts/check-licences.ts",
   "actionlint",
   # Online audits too when GH_TOKEN is set (CI sets it); offline otherwise.
   "zizmor --no-progress .",
@@ -41,6 +43,40 @@ run = [
   # re2 build, which Bun cannot load (the validator falls back to RegExp).
   "bunx --bun --ignore-scripts --minimum-release-age 259200 --package renovate@44.239.1 renovate-config-validator --strict --no-global renovate.json",
 ]
+
+[tasks."check:bun"]
+description = "The parent, the SPA and the scripts: lockfile age, format, lint, types, tests, licences"
+run = [
+  "bun scripts/verify-lockfile-age.ts",
+  "bun fmt --check",
+  "bunx biome lint --error-on-warnings",
+  "bun check",
+  "bun test",
+  "bun scripts/check-licences.ts",
+]
+
+[tasks."check:worker"]
+description = "The worker (apps/worker): lock, format, lint, types, unit tests, licences, lock age"
+dir = "apps/worker"
+run = [
+  "uv lock --check",
+  "uv run --frozen ruff format --check",
+  "uv run --frozen ruff check",
+  "uv run --frozen pyright",
+  "uv run --frozen pytest",
+  "uv run --frozen python scripts/check_licences.py",
+  "uv run --frozen python scripts/check_lock_age.py",
+]
+
+[tasks.worker-models-test]
+description = "Download the worker's real models (about 2.5 GB, cached) and test them"
+dir = "apps/worker"
+run = "uv run --frozen pytest -m models -v"
+
+[tasks.worker]
+description = "Run the worker from source against WAKEWRIGHT_WORKER__PARENT_URL"
+dir = "apps/worker"
+run = "uv run --frozen wakewright-worker"
 
 [tasks.openapi]
 description = "Rewrite docs/api/worker-v1.openapi.json from the worker API's routes"
@@ -53,3 +89,7 @@ run = "bunx --bun playwright test"
 [tasks.release]
 description = "Open the release pull request: mise run release <version> [--dry-run]"
 run = "bun scripts/release.ts"
+
+[tasks.integration]
+description = "The parent and the real worker loop together, with fake judges (no model downloads)"
+run = "bun devtools/worker-integration.ts"
