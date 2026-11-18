@@ -99,6 +99,7 @@ devtools/
   dev.ts              `mise run dev`: parent + two fake devices
   fake-kiosk/         @wakewright/fake-kiosk: fake device + synthetic clips
 deploy/docker/        parent.Dockerfile
+deploy/compose/       docker-compose.yml: the reference Compose file
 scripts/              repository checks run by `mise run check`
 tests/e2e/            Playwright: smoke tests and the first-run path against a fake device
 docs/                 this documentation and the ADRs
