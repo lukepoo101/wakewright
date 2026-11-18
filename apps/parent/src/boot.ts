@@ -22,16 +22,24 @@ export interface Booted {
 }
 
 // Start-up shared by the production entry (main.ts) and the development
-// entry (dev.ts): open and migrate the database, apply the configured admin
-// account, build the API, then start the collector and the nightly backup.
+// entry (dev.ts): open and migrate the database, apply the auth mode and the
+// configured admin account, build the API, then start the collector and the
+// nightly backup.
 export async function boot(config: Config, log: Logger): Promise<Booted> {
   const { dataDir } = config.storage;
   const db = openDatabase(config.storage.dbPath);
   const result = migrate(db, { backupDir: join(dataDir, "backups") });
   if (result.to !== result.from) log.info("database migrated", { ...result });
 
-  const auth = new Auth({ db, log, managed: config.admin.password !== undefined });
-  if (config.admin.password !== undefined) {
+  const mode = config.auth.mode;
+  const auth = new Auth({ db, log, managed: config.admin.password !== undefined, mode });
+  if (mode === "none") {
+    log.warn(
+      "sign-in is off (WAKEWRIGHT__AUTH__MODE=none): anyone who can reach this server has " +
+        "full access to its clips and devices. Keep the port private and put an " +
+        "authenticating reverse proxy in front of it",
+    );
+  } else if (config.admin.password !== undefined) {
     await auth.applyConfiguredAdmin({
       username: config.admin.username,
       password: config.admin.password,

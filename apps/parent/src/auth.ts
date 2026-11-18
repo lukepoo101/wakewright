@@ -14,6 +14,7 @@ import {
   userById,
   userByName,
 } from "./db/users.ts";
+import type { AuthMode } from "./config.ts";
 import type { Logger } from "./log.ts";
 
 // The single local admin account and its browser sessions.
@@ -27,6 +28,10 @@ import type { Logger } from "./log.ts";
 // - When the password comes from configuration (WAKEWRIGHT__ADMIN__PASSWORD
 //   or _FILE), configuration is the source of truth: the account is created
 //   or updated to match on every start and first-run setup is disabled.
+// - With mode "none" (WAKEWRIGHT__AUTH__MODE=none) nothing here is used: no
+//   setup, no sign-in, no sessions. A reverse proxy in front must
+//   authenticate every request instead. The account, if one exists, is
+//   kept, so switching back to "local" restores it.
 
 export const SESSION_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -46,6 +51,8 @@ export interface AuthOptions {
   log: Logger;
   /** True when the admin password is managed by configuration. */
   managed: boolean;
+  /** "none" turns sign-in off; "local" (the default) requires it. */
+  mode?: AuthMode;
   now?: () => number;
   /** Hash parameters; Bun's argon2id defaults unless a test needs speed. */
   hashOptions?: Bun.Password.Argon2Algorithm;
@@ -53,6 +60,7 @@ export interface AuthOptions {
 
 export class Auth {
   readonly managed: boolean;
+  readonly mode: AuthMode;
   readonly throttle: LoginThrottle;
   private readonly db: Database;
   private readonly log: Logger;
@@ -64,6 +72,7 @@ export class Auth {
     this.db = options.db;
     this.log = options.log;
     this.managed = options.managed;
+    this.mode = options.mode ?? "local";
     this.now = options.now ?? Date.now;
     this.throttle = new LoginThrottle(this.now);
     this.hashOptions = options.hashOptions;
@@ -110,7 +119,7 @@ export class Auth {
     username: string,
     password: string,
   ): Promise<{ ok: true; user: User; token: string; expiresAt: Date } | { ok: false }> {
-    if (this.managed) return { ok: false };
+    if (this.managed || this.mode === "none") return { ok: false };
     const passwordHash = await this.hash(password);
     // Check and insert in one transaction, after the slow hash, so two
     // racing setups cannot both create an account.

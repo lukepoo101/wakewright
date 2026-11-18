@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createApi } from "../src/api/index.ts";
 import { Auth } from "../src/auth.ts";
 import { BlobStore } from "../src/blobs.ts";
+import type { AuthMode } from "../src/config.ts";
 import { SecretBox } from "../src/crypto.ts";
 import { openDatabase } from "../src/db/db.ts";
 import { migrate } from "../src/db/migrate.ts";
@@ -69,7 +70,13 @@ export async function testParts(
 }
 
 export async function testApi(
-  options: { db?: Database; managed?: boolean; now?: () => number; fetch?: typeof fetch } = {},
+  options: {
+    db?: Database;
+    managed?: boolean;
+    mode?: AuthMode;
+    now?: () => number;
+    fetch?: typeof fetch;
+  } = {},
 ) {
   const parts = await testParts(options);
   const { db } = parts;
@@ -77,6 +84,7 @@ export async function testApi(
     db,
     log: quietLog,
     managed: options.managed ?? false,
+    mode: options.mode,
     now: options.now,
     hashOptions: FAST_HASH,
   });

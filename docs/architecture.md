@@ -48,6 +48,8 @@ word clips, store them, and browse and play them.
   `HttpOnly`, `SameSite=Lax` cookie, a same-origin check on changes and a
   throttled login ([ADR 0013](adr/0013-admin-account-and-sessions.md)). The
   SPA shows setup or sign-in in place of every screen until it has a session.
+  `WAKEWRIGHT__AUTH__MODE=none` turns sign-in off for deployments behind an
+  authenticating proxy ([ADR 0015](adr/0015-sign-in-off-behind-a-proxy.md)).
 - **Collection**: the collector (`ingest.ts`) polls each device through a
   `Source` (`source.ts`; the Kiosk Satellite adapter is in `kiosk/`), every
   10 s by default with backoff on failure, and stores each new clip once:
@@ -146,3 +148,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0012 [Device passwords encrypted with an instance key](adr/0012-device-password-encryption.md)
 - 0013 [One local admin account with server-side sessions](adr/0013-admin-account-and-sessions.md)
 - 0014 [The device settings a clip was recorded under](adr/0014-device-settings-of-a-clip.md)
+- 0015 [Sign-in can be turned off for an authenticating proxy](adr/0015-sign-in-off-behind-a-proxy.md)

@@ -142,14 +142,22 @@ jobs:
             --cap-drop ALL --security-opt no-new-privileges \
             --add-host=host.docker.internal:host-gateway \
             -p 8080:8080 "$IMAGE"
-          for _ in $(seq 30); do
-            status=$(docker inspect -f '{{.State.Health.Status}}' wakewright)
-            [ "$status" = healthy ] && break
-            sleep 1
+          # A second instance with sign-in off, as behind an authenticating proxy.
+          docker run -d --name wakewright-open --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -e WAKEWRIGHT__AUTH__MODE=none \
+            -p 8081:8080 "$IMAGE"
+          for name in wakewright wakewright-open; do
+            for _ in $(seq 30); do
+              status=$(docker inspect -f '{{.State.Health.Status}}' "$name")
+              [ "$status" = healthy ] && break
+              sleep 1
+            done
+            docker inspect -f "$name health: {{.State.Health.Status}}" "$name"
+            [ "$status" = healthy ]
           done
-          docker inspect -f 'Health: {{.State.Health.Status}}' wakewright
-          [ "$status" = healthy ]
           curl -fsS http://localhost:8080/readyz
+          curl -fsS http://localhost:8081/readyz
 
       # Only Bun: this job needs none of the lint tools in mise.toml.
       - name: Set up mise and Bun
@@ -173,13 +181,16 @@ jobs:
       - name: Run the E2E smoke test against the image
         env:
           E2E_BASE_URL: http://localhost:8080
+          E2E_OPEN_BASE_URL: http://localhost:8081
           # The fake device Playwright starts on the runner, as the container sees it.
           E2E_FAKE_KIOSK_URL: http://host.docker.internal:23250
         run: mise run e2e
 
       - name: Show the container log
         if: always()
-        run: docker logs wakewright || true
+        run: |
+          docker logs wakewright || true
+          docker logs wakewright-open || true
 
       - name: Upload Playwright traces
         if: failure()

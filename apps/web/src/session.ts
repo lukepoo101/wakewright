@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { call, v1 } from "./api.ts";
 
 // The signed-in state: "setup" before the admin account exists, then
-// "signed_out" or "signed_in". Every screen sits behind it.
+// "signed_out" or "signed_in"; always "open" when the server has sign-in off
+// (WAKEWRIGHT__AUTH__MODE=none). Every screen sits behind it.
 
 export const sessionKey = ["session"] as const;
 

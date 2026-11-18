@@ -15,7 +15,9 @@ import { useSession } from "./session.ts";
 
 // Code-based route tree. Each screen is a page in pages/ with its route
 // declared here. Every route sits behind the session gate in the root:
-// first-run setup, then sign-in, then the app.
+// first-run setup, then sign-in, then the app. With sign-in off on the
+// server (state "open") the gate goes straight to the app, after the same
+// loading screen, so a sign-in screen never flashes.
 
 function SessionGate() {
   const session = useSession();
@@ -38,7 +40,7 @@ function SessionGate() {
   if (session.data.state === "signed_out") return <LoginPage managed={session.data.managed} />;
   return (
     <PlayerProvider>
-      <Layout status={<CollectionStatus />}>
+      <Layout status={<CollectionStatus />} signOut={session.data.state === "signed_in"}>
         <Outlet />
       </Layout>
     </PlayerProvider>

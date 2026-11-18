@@ -65,6 +65,12 @@ for liveness and `/readyz` for readiness. Set
 `WAKEWRIGHT__SERVER__PUBLIC_URL` to the ingress address. Every variable is
 in [configuration.md](configuration.md).
 
+If your ingress already signs people in (an OIDC or forward-auth
+middleware), you can turn Wakewright's own sign-in off with
+`WAKEWRIGHT__AUTH__MODE=none` and leave out the admin password. Then only
+the ingress may reach the Service: restrict it with a network policy
+([configuration.md](configuration.md#sign-in-off-behind-an-authenticating-proxy)).
+
 ## Add your first device
 
 1. Turn on wake word diagnostics on the device:

@@ -4,11 +4,17 @@ import { defineConfig, devices } from "@playwright/test";
 // that production build with a throwaway data directory. CI sets
 // E2E_BASE_URL to test the built container image instead.
 //
+// A second instance with sign-in off (WAKEWRIGHT__AUTH__MODE=none) runs the
+// `open` project's tests: locally on openPort, in CI at E2E_OPEN_BASE_URL.
+// Against an external server without that variable the project is left out.
+//
 // A fake Kiosk Satellite always starts on FAKE_PORT. The tests drive it at
 // 127.0.0.1; the server under test reaches it at E2E_FAKE_KIOSK_URL (CI
 // points that at the Docker host).
 const external = process.env.E2E_BASE_URL;
+const openExternal = process.env.E2E_OPEN_BASE_URL;
 const port = 18080;
+const openPort = 18081;
 const fakePort = 23250;
 const fake = {
   command: `bun devtools/fake-kiosk/src/main.ts --host 0.0.0.0 --port ${fakePort} --name e2e-kiosk --initial 4`,
@@ -26,7 +32,25 @@ export default defineConfig({
     baseURL: external ?? `http://127.0.0.1:${port}`,
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      testIgnore: "open.spec.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    ...(external && !openExternal
+      ? []
+      : [
+          {
+            name: "open",
+            testMatch: "open.spec.ts",
+            use: {
+              ...devices["Desktop Chrome"],
+              baseURL: openExternal ?? `http://127.0.0.1:${openPort}`,
+            },
+          },
+        ]),
+  ],
   webServer: external
     ? [fake]
     : [
@@ -35,6 +59,18 @@ export default defineConfig({
           command: "bun run build && bun tests/e2e/serve-dist.ts",
           url: `http://127.0.0.1:${port}/readyz`,
           env: { WAKEWRIGHT__SERVER__PORT: String(port), WAKEWRIGHT__SERVER__HOST: "127.0.0.1" },
+          reuseExistingServer: false,
+          timeout: 30_000,
+        },
+        // Started after the one above, so dist/ is already built.
+        {
+          command: "bun tests/e2e/serve-dist.ts",
+          url: `http://127.0.0.1:${openPort}/readyz`,
+          env: {
+            WAKEWRIGHT__SERVER__PORT: String(openPort),
+            WAKEWRIGHT__SERVER__HOST: "127.0.0.1",
+            WAKEWRIGHT__AUTH__MODE: "none",
+          },
           reuseExistingServer: false,
           timeout: 30_000,
         },

@@ -18,6 +18,7 @@ one or the other, not both. One trailing newline in a file is ignored.
 | `WAKEWRIGHT__SERVER__STATIC_DIR`          | `public/` next to `main.js`   | The built web UI. Only needed when running from an unusual layout.                                                                                                                                                                                |
 | `WAKEWRIGHT__STORAGE__DATA_DIR`           | `data` (`/data` in the image) | Database, audio, backups and the generated secret key. Must be local or block storage, never NFS or CephFS.                                                                                                                                       |
 | `WAKEWRIGHT__LOG__LEVEL`                  | `info`                        | `debug`, `info`, `warn` or `error`. Logs are JSON lines on standard output.                                                                                                                                                                       |
+| `WAKEWRIGHT__AUTH__MODE`                  | `local`                       | `local`: the built-in admin account and sign-in. `none`: no sign-in at all, for an instance behind a reverse proxy that authenticates every request ([below](#sign-in-off-behind-an-authenticating-proxy)).                                       |
 | `WAKEWRIGHT__ADMIN__USERNAME`             | `admin`                       | The admin account's name when the password is set by configuration.                                                                                                                                                                               |
 | `WAKEWRIGHT__ADMIN__PASSWORD`             | none                          | The admin password, at least 12 characters. When set (here or in `_FILE`), configuration owns the account: it is created or updated on every start, a changed password signs everyone out, and first-run setup is skipped.                        |
 | `WAKEWRIGHT__ADMIN__PASSWORD_FILE`        | none                          | A file holding the admin password.                                                                                                                                                                                                                |
@@ -35,6 +36,26 @@ can open it, set the password by configuration instead.
 
 To reset a forgotten password, set `WAKEWRIGHT__ADMIN__PASSWORD` (and
 `WAKEWRIGHT__ADMIN__USERNAME` if you chose another name) and restart.
+
+## Sign-in off behind an authenticating proxy
+
+If a reverse proxy already signs people in before they reach Wakewright
+(OAuth2 Proxy, Authelia, Authentik, a forward-auth middleware), set
+`WAKEWRIGHT__AUTH__MODE=none` to turn Wakewright's own sign-in off. There
+is then no setup or sign-in screen and no sign-out button, and the API
+needs no session.
+
+**Anyone who can reach Wakewright's port then has full access** to every
+clip and device, and the server logs a warning saying so at every start.
+Make sure only the proxy can reach it: bind it to a private address, or
+restrict it with a firewall or a Kubernetes network policy. `/healthz` and
+`/readyz` stay open, as in `local` mode. Changes are still accepted only
+from the instance's own origin, so set `WAKEWRIGHT__SERVER__PUBLIC_URL` as
+usual.
+
+`WAKEWRIGHT__ADMIN__PASSWORD(_FILE)` is refused in this mode, because it
+would protect nothing. An admin account already in the database is kept,
+so setting the mode back to `local` restores it.
 
 ## The secret key
 

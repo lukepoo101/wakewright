@@ -24,6 +24,9 @@ const Env = z.object({
   WAKEWRIGHT__SERVER__STATIC_DIR: z.string().min(1).optional(),
   WAKEWRIGHT__STORAGE__DATA_DIR: z.string().min(1).default("data"),
   WAKEWRIGHT__LOG__LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  // `local`: the built-in admin account and sign-in. `none`: no sign-in at
+  // all, for deployments where a reverse proxy authenticates every request.
+  WAKEWRIGHT__AUTH__MODE: z.enum(["local", "none"]).default("local"),
   WAKEWRIGHT__ADMIN__USERNAME: z
     .string()
     .regex(/^[A-Za-z0-9._-]{1,64}$/, "1–64 letters, digits, dots, dashes or underscores")
@@ -37,10 +40,17 @@ const Env = z.object({
   WAKEWRIGHT__SECRET_KEY_FILE: z.string().min(1).optional(),
 });
 
+export type AuthMode = "local" | "none";
+
 export interface Config {
   server: { host: string; port: number; staticDir: string; publicUrl?: URL };
   storage: { dataDir: string; dbPath: string };
   log: { level: "debug" | "info" | "warn" | "error" };
+  /**
+   * "local": the admin account and its sessions guard the UI and API.
+   * "none": nothing does; whatever is in front of the server must.
+   */
+  auth: { mode: AuthMode };
   collector: { intervalMs: number; timeoutMs: number };
   admin: {
     username: string;
@@ -68,6 +78,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       `Invalid configuration: WAKEWRIGHT__ADMIN__PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters`,
     );
   }
+  // A password with sign-in off would protect nothing; refuse it rather than
+  // let someone believe it does.
+  if (e.WAKEWRIGHT__AUTH__MODE === "none" && password !== undefined) {
+    throw new Error(
+      "Invalid configuration: WAKEWRIGHT__ADMIN__PASSWORD(_FILE) has no effect when " +
+        "WAKEWRIGHT__AUTH__MODE is none; remove it, or use WAKEWRIGHT__AUTH__MODE=local",
+    );
+  }
   const key = secret(e, "WAKEWRIGHT__SECRET_KEY");
 
   return {
@@ -81,6 +99,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     storage: { dataDir, dbPath: join(dataDir, "db", "wakewright.sqlite3") },
     log: { level: e.WAKEWRIGHT__LOG__LEVEL },
+    auth: { mode: e.WAKEWRIGHT__AUTH__MODE },
     collector: {
       intervalMs: e.WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS * 1000,
       timeoutMs: e.WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS * 1000,
