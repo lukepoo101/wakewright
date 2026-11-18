@@ -31,8 +31,23 @@
   min-width: 0;
 }
 
+/* A date field needs its full width to show dd/mm/yyyy and its icon. */
+.filter:has(input[type="date"]) {
+  flex: 0 0 9.5rem;
+}
+
+/* The count and, while filtering, the way back to every clip. */
+.countLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
 .clear {
-  align-self: flex-end;
+  min-height: 0;
+  padding-block: 0;
+  font-size: var(--text-small);
 }
 
 .results {
@@ -43,6 +58,7 @@
 .summary {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);

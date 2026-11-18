@@ -140,15 +140,6 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
             onChange={(e) => update({ to: e.target.value || undefined })}
           />
         </label>
-        {filtered && (
-          <Button
-            variant="ghost"
-            className={styles.clear}
-            onClick={() => navigate({ to: "/clips", search: {}, replace: true })}
-          >
-            Clear filters
-          </Button>
-        )}
       </form>
 
       {clips.isPending && <Loading label="Loading clips…" />}
@@ -196,10 +187,21 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
       {clips.data && total > 0 && (
         <Card className={styles.results}>
           <div className={styles.summary}>
-            <p role="status">
-              {first.toLocaleString("en-GB")}–{last.toLocaleString("en-GB")} of{" "}
-              {total.toLocaleString("en-GB")} clips
-            </p>
+            <div className={styles.countLine}>
+              <p role="status">
+                {first.toLocaleString("en-GB")}–{last.toLocaleString("en-GB")} of{" "}
+                {total.toLocaleString("en-GB")} clips
+              </p>
+              {filtered && (
+                <Button
+                  variant="ghost"
+                  className={styles.clear}
+                  onClick={() => navigate({ to: "/clips", search: {}, replace: true })}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
             <p className={styles.keys}>
               <kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Space</kbd> play · <kbd>Enter</kbd> open
             </p>
