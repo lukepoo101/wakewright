@@ -9,8 +9,9 @@ import { Button } from "./ui.tsx";
 // The app shell: a top bar (brand, status, theme, sign out), a labelled
 // rail on wide screens and a bottom bar on phones.
 
-const nav: { to: "/" | "/devices"; label: string; icon: IconName }[] = [
+const nav: { to: "/" | "/clips" | "/devices"; label: string; icon: IconName }[] = [
   { to: "/", label: "Home", icon: "home" },
+  { to: "/clips", label: "Clips", icon: "clips" },
   { to: "/devices", label: "Devices", icon: "devices" },
 ];
 

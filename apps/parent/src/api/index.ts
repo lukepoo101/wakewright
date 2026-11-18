@@ -2,9 +2,11 @@ import type { Database } from "bun:sqlite";
 import type { Context } from "hono";
 import { csrf } from "hono/csrf";
 import type { Auth } from "../auth.ts";
+import type { BlobStore } from "../blobs.ts";
 import type { Devices } from "../devices.ts";
 import type { Collector } from "../ingest.ts";
 import { version } from "../version.ts";
+import { clipRoutes } from "./clips.ts";
 import { type CookiePolicy, newApi, requireUser } from "./common.ts";
 import { deviceRoutes } from "./devices.ts";
 import { healthRoutes } from "./health.ts";
@@ -14,6 +16,7 @@ export interface ApiDeps {
   db: Database;
   auth: Auth;
   devices: Devices;
+  blobs: BlobStore;
   collector: Collector;
   /** The collector's poll interval, shown in the UI. */
   intervalMs: number;
@@ -38,7 +41,8 @@ export function createApi(deps: ApiDeps) {
   const routes = app
     .route("/", healthRoutes(deps.db))
     .route("/api/v1", sessionRoutes(deps.auth, policy))
-    .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)));
+    .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)))
+    .route("/api/v1", clipRoutes(deps, requireUser(deps.auth, policy)));
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

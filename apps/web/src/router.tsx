@@ -3,10 +3,14 @@ import { errorMessage } from "./api.ts";
 import { Layout } from "./components/Layout.tsx";
 import { Alert, Button, Loading } from "./components/ui.tsx";
 import { AuthScreen, LoginPage, SetupPage } from "./pages/AuthPages.tsx";
+import { parseClipSearch } from "./clips.ts";
+import { ClipPage } from "./pages/ClipPage.tsx";
+import { ClipsPage } from "./pages/ClipsPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { EditDevicePage, NewDevicePage } from "./pages/DeviceFormPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
 import { CollectionStatus } from "./components/CollectionStatus.tsx";
+import { PlayerProvider } from "./player.tsx";
 import { useSession } from "./session.ts";
 
 // Code-based route tree. Each screen is a page in pages/ with its route
@@ -33,9 +37,11 @@ function SessionGate() {
   if (session.data.state === "setup") return <SetupPage />;
   if (session.data.state === "signed_out") return <LoginPage managed={session.data.managed} />;
   return (
-    <Layout status={<CollectionStatus />}>
-      <Outlet />
-    </Layout>
+    <PlayerProvider>
+      <Layout status={<CollectionStatus />}>
+        <Outlet />
+      </Layout>
+    </PlayerProvider>
   );
 }
 
@@ -64,7 +70,33 @@ const editDeviceRoute = createRoute({
   },
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, devicesRoute, newDeviceRoute, editDeviceRoute]);
+const clipsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/clips",
+  validateSearch: parseClipSearch,
+  component: function ClipsRoute() {
+    return <ClipsPage search={clipsRoute.useSearch()} />;
+  },
+});
+
+const clipRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/clips/$clipId",
+  validateSearch: parseClipSearch,
+  component: function ClipRoute() {
+    const { clipId } = clipRoute.useParams();
+    return <ClipPage clipId={clipId} search={clipRoute.useSearch()} />;
+  },
+});
+
+const routeTree = rootRoute.addChildren([
+  homeRoute,
+  clipsRoute,
+  clipRoute,
+  devicesRoute,
+  newDeviceRoute,
+  editDeviceRoute,
+]);
 
 export const router = createRouter({ routeTree });
 

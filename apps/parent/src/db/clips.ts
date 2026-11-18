@@ -60,3 +60,115 @@ export function insertClip(
     return result.changes === 1;
   })();
 }
+
+export interface ClipFilter {
+  deviceId?: string;
+  reason?: "fired" | "near_miss";
+  /** Inclusive lower bound on captured_at (ISO). */
+  from?: string;
+  /** Exclusive upper bound on captured_at (ISO). */
+  to?: string;
+}
+
+export type ClipListRow = ClipRow & { device_name: string; device_removed: number };
+
+// Builds the WHERE clause for a filter. Values are always bound, never
+// interpolated.
+function where(filter: ClipFilter): { sql: string; params: Record<string, string> } {
+  const parts: string[] = [];
+  const params: Record<string, string> = {};
+  if (filter.deviceId) {
+    parts.push("c.device_id = $deviceId");
+    params.deviceId = filter.deviceId;
+  }
+  if (filter.reason) {
+    parts.push("c.capture_reason = $reason");
+    params.reason = filter.reason;
+  }
+  if (filter.from) {
+    parts.push("c.captured_at >= $from");
+    params.from = filter.from;
+  }
+  if (filter.to) {
+    parts.push("c.captured_at < $to");
+    params.to = filter.to;
+  }
+  return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", params };
+}
+
+const SELECT_CLIP = `
+  SELECT c.*, d.name AS device_name, (d.removed_at IS NOT NULL) AS device_removed
+  FROM clips c JOIN devices d ON d.id = c.device_id`;
+
+/** Newest first, then by id so equal times have a stable order. */
+export function listClips(
+  db: Database,
+  filter: ClipFilter,
+  page: { limit: number; offset: number },
+): { rows: ClipListRow[]; total: number } {
+  const w = where(filter);
+  const total =
+    db
+      .query<{ n: number }, Record<string, string>>(`SELECT count(*) AS n FROM clips c ${w.sql}`)
+      .get(w.params)?.n ?? 0;
+  const rows = db
+    .query<ClipListRow, Record<string, string | number>>(
+      `${SELECT_CLIP} ${w.sql} ORDER BY c.captured_at DESC, c.id DESC LIMIT $limit OFFSET $offset`,
+    )
+    .all({ ...w.params, limit: page.limit, offset: page.offset });
+  return { rows, total };
+}
+
+export function getClip(db: Database, id: string): ClipListRow | null {
+  return db.query<ClipListRow, [string]>(`${SELECT_CLIP} WHERE c.id = ?`).get(id);
+}
+
+/** The clips just newer and just older than `clip` within the same filter. */
+export function clipNeighbours(
+  db: Database,
+  clip: ClipRow,
+  filter: ClipFilter,
+): { newer: string | null; older: string | null } {
+  const w = where(filter);
+  const and = w.sql ? `${w.sql} AND` : "WHERE";
+  const params = { ...w.params, at: clip.captured_at, id: clip.id };
+  const newer = db
+    .query<{ id: string }, Record<string, string>>(
+      `SELECT c.id FROM clips c ${and} (c.captured_at > $at OR (c.captured_at = $at AND c.id > $id))
+       ORDER BY c.captured_at ASC, c.id ASC LIMIT 1`,
+    )
+    .get(params);
+  const older = db
+    .query<{ id: string }, Record<string, string>>(
+      `SELECT c.id FROM clips c ${and} (c.captured_at < $at OR (c.captured_at = $at AND c.id < $id))
+       ORDER BY c.captured_at DESC, c.id DESC LIMIT 1`,
+    )
+    .get(params);
+  return { newer: newer?.id ?? null, older: older?.id ?? null };
+}
+
+export interface ClipSummary {
+  total: number;
+  last24h: { fired: number; nearMiss: number };
+  lastClipAt: string | null;
+}
+
+export function clipSummary(db: Database, since: string): ClipSummary {
+  const row = db
+    .query<
+      { total: number; fired: number | null; near: number | null; last: string | null },
+      [string]
+    >(
+      `SELECT count(*) AS total,
+         sum(captured_at >= ?1 AND capture_reason = 'fired') AS fired,
+         sum(captured_at >= ?1 AND capture_reason = 'near_miss') AS near,
+         max(captured_at) AS last
+       FROM clips`,
+    )
+    .get(since);
+  return {
+    total: row?.total ?? 0,
+    last24h: { fired: row?.fired ?? 0, nearMiss: row?.near ?? 0 },
+    lastClipAt: row?.last ?? null,
+  };
+}

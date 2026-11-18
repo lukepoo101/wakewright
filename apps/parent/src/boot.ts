@@ -56,6 +56,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     auth,
     devices,
     collector,
+    blobs,
     intervalMs: config.collector.intervalMs,
     publicUrl: config.server.publicUrl,
   });

@@ -145,7 +145,13 @@ function DeviceCard({ device }: { device: Device }) {
           <dd>{diagnosticsText(reported?.diagnosticsEnabled)}</dd>
           <dt>Clips</dt>
           <dd>
-            {device.clips > 0 ? plural(device.clips, "clip") : "none yet"}
+            {device.clips > 0 ? (
+              <Link to="/clips" search={{ device: device.id }}>
+                {plural(device.clips, "clip")}
+              </Link>
+            ) : (
+              "none yet"
+            )}
             {device.lastClipAt && ` · latest ${ago(device.lastClipAt, now)}`}
           </dd>
         </dl>
