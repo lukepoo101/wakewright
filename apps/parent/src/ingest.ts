@@ -48,6 +48,8 @@ export interface CollectorOptions {
   log: Logger;
   intervalMs: number;
   now?: () => number;
+  /** Called after a poll stores new clips (judging wakes waiting workers). */
+  onStored?: () => void;
 }
 
 export interface PollOutcome {
@@ -64,6 +66,7 @@ export class Collector {
   private readonly log: Logger;
   private readonly intervalMs: number;
   private readonly now: () => number;
+  private readonly onStored: () => void;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = true;
   private readonly inFlight = new Map<string, Promise<PollOutcome>>();
@@ -78,6 +81,7 @@ export class Collector {
     this.log = options.log.child({ component: "collector" });
     this.intervalMs = options.intervalMs;
     this.now = options.now ?? Date.now;
+    this.onStored = options.onStored ?? (() => {});
   }
 
   start(): void {
@@ -204,7 +208,10 @@ export class Collector {
         reportedAt,
         gap: poll.gapDetected,
       });
-      if (stored > 0) log.info("stored clips", { stored });
+      if (stored > 0) {
+        log.info("stored clips", { stored });
+        this.onStored();
+      }
       if (discarded > 0) log.debug("skipped clips captured while paused", { discarded });
       return { stored, discarded };
     } catch (error) {

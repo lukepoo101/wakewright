@@ -12,6 +12,7 @@ import {
   getClip,
   listClips,
 } from "../db/clips.ts";
+import type { Judging } from "../judging.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
 // Collected clips: list with filters and paging, one clip with its
@@ -19,6 +20,47 @@ import { type ApiEnv, errorContent, newApi } from "./common.ts";
 // for the home screen. /api/v1/clips.
 
 const Kind = z.enum(["fired", "near_miss"]);
+const Agreement = z.enum(["waiting", "inconclusive", "disagree", "agree_yes", "agree_no"]);
+const Mismatch = z.enum(["false_wake", "missed_wake"]);
+
+/**
+ * What the judges said, from each judge's latest result (ADR 0016):
+ * agreement ignores abstentions; mismatch is set when the judges agree
+ * against the device (it fired but they say no: a likely false wake; a
+ * near miss they say yes to: a likely missed wake word).
+ */
+const ClipJudging = z
+  .object({
+    agreement: Agreement,
+    yes: z.number().int(),
+    no: z.number().int(),
+    abstain: z.number().int(),
+    mismatch: Mismatch.nullable(),
+  })
+  .openapi("ClipJudging");
+
+const JudgeResult = z
+  .object({
+    judge: z.string(),
+    version: z.string(),
+    verdict: z.enum(["yes", "no", "abstain"]),
+    score: z.number().nullable(),
+    threshold: z.number().nullable(),
+    transcript: z.string().nullable(),
+    detail: z.string().nullable(),
+    durationMs: z.number().int(),
+    worker: z.string(),
+    judgedAt: z.string(),
+  })
+  .openapi("ClipJudgeResult");
+
+const PendingJudge = z
+  .object({
+    judge: z.string(),
+    /** waiting: not judged yet; no_model: no worker has a model for this wake word. */
+    reason: z.enum(["waiting", "no_model"]),
+  })
+  .openapi("PendingJudge");
 
 const Clip = z
   .object({
@@ -63,6 +105,7 @@ const Clip = z
         fineTune: z.number().nullable(),
       })
       .nullable(),
+    judging: ClipJudging,
   })
   .openapi("Clip");
 
@@ -74,6 +117,8 @@ const Filter = z.object({
   engine: z.string().max(64).optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
+  agreement: Agreement.optional(),
+  mismatch: Mismatch.optional(),
 });
 
 const ListQuery = Filter.extend({
@@ -153,6 +198,7 @@ const routes = {
               clip: Clip,
               newerId: z.string().nullable(),
               olderId: z.string().nullable(),
+              judges: z.object({ results: z.array(JudgeResult), pending: z.array(PendingJudge) }),
             }),
           },
         },
@@ -183,10 +229,10 @@ const routes = {
 };
 
 export function clipRoutes(
-  deps: { db: Database; blobs: BlobStore },
+  deps: { db: Database; blobs: BlobStore; judging: Judging },
   guard: MiddlewareHandler<ApiEnv>,
 ) {
-  const { db, blobs } = deps;
+  const { db, blobs, judging } = deps;
   const notFound = { error: "not_found", message: "No such clip." } as const;
   const app = newApi();
   for (const path of ["/clips", "/clips/*"]) app.use(path, guard);
@@ -209,7 +255,23 @@ export function clipRoutes(
       const row = getClip(db, c.req.valid("param").id);
       if (!row) return c.json(notFound, 404);
       const { newer, older } = clipNeighbours(db, row, toFilter(c.req.valid("query")));
-      return c.json({ clip: toClip(row), newerId: newer, olderId: older }, 200);
+      const judged = judging.forClip(row.id) ?? { results: [], pending: [] };
+      const judges = {
+        results: judged.results.map((r) => ({
+          judge: r.judge,
+          version: r.version,
+          verdict: r.verdict,
+          score: r.score,
+          threshold: r.threshold,
+          transcript: r.transcript,
+          detail: r.detail,
+          durationMs: r.duration_ms,
+          worker: r.worker,
+          judgedAt: r.judged_at,
+        })),
+        pending: judged.pending,
+      };
+      return c.json({ clip: toClip(row), newerId: newer, olderId: older, judges }, 200);
     })
     .openapi(routes.audio, async (c) => {
       const row = getClip(db, c.req.valid("param").id);
@@ -253,7 +315,15 @@ export function clipRoutes(
 }
 
 function toFilter(q: z.infer<typeof Filter>): ClipFilter {
-  return { deviceId: q.device, reason: q.kind, engine: q.engine, from: iso(q.from), to: iso(q.to) };
+  return {
+    deviceId: q.device,
+    reason: q.kind,
+    engine: q.engine,
+    from: iso(q.from),
+    to: iso(q.to),
+    agreement: q.agreement,
+    mismatch: q.mismatch,
+  };
 }
 
 // Stored times are UTC with a Z; normalise offsets so text comparison holds.
@@ -316,5 +386,12 @@ function toClip(row: ClipListRow): z.infer<typeof Clip> {
     trigger: text(meta.trigger),
     stopWord: meta.stop === true,
     sensitivity: row.sensitivity_json ? JSON.parse(row.sensitivity_json) : null,
+    judging: {
+      agreement: row.agreement,
+      yes: row.votes_yes,
+      no: row.votes_no,
+      abstain: row.votes_abstain,
+      mismatch: row.mismatch,
+    },
   };
 }

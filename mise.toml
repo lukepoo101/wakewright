@@ -42,6 +42,10 @@ run = [
   "bunx --bun --ignore-scripts --minimum-release-age 259200 --package renovate@44.239.1 renovate-config-validator --strict --no-global renovate.json",
 ]
 
+[tasks.openapi]
+description = "Rewrite docs/api/worker-v1.openapi.json from the worker API's routes"
+run = "bun scripts/worker-openapi.ts"
+
 [tasks.e2e]
 description = "Playwright smoke test: builds and starts dist/, or tests E2E_BASE_URL"
 run = "bunx --bun playwright test"

@@ -1,0 +1,17 @@
+{
+  "name": "@wakewright/fake-worker",
+  "version": "0.0.3",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "fake-worker": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/worker.ts"
+  },
+  "devDependencies": {
+    "@wakewright/fake-kiosk": "workspace:*",
+    "@wakewright/parent": "workspace:*"
+  }
+}

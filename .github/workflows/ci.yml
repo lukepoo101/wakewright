@@ -135,12 +135,14 @@ jobs:
           docker image ls "$IMAGE" --format 'Image size: {{.Size}}'
 
       # Run it as a user would: read-only root filesystem, writable /data
-      # volume and /tmp, no extra privileges.
+      # volume and /tmp, no extra privileges. The worker token (not a secret,
+      # the same as in playwright.config.ts) lets E2E run the fake worker.
       - name: Start the image
         run: |
           docker run -d --name wakewright --read-only --tmpfs /tmp \
             --cap-drop ALL --security-opt no-new-privileges \
             --add-host=host.docker.internal:host-gateway \
+            -e WAKEWRIGHT__WORKER__TOKEN=e2e-worker-token-not-secret \
             -p 8080:8080 "$IMAGE"
           # A second instance with sign-in off, as behind an authenticating proxy.
           docker run -d --name wakewright-open --read-only --tmpfs /tmp \

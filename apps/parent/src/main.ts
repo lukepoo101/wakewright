@@ -70,6 +70,7 @@ async function serve() {
 
   const stop = async (signal: string) => {
     log.info("stopping", { signal });
+    booted.drain();
     await server.stop();
     await booted.stop();
     process.exit(0);

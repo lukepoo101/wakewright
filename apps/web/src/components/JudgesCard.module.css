@@ -1,0 +1,103 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.summary {
+  color: var(--color-text-muted);
+}
+
+.judges {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-3);
+}
+
+.judge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-bg);
+}
+
+.judgeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.transcript {
+  font-style: italic;
+}
+
+.meta {
+  margin-top: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.verdict {
+  padding: 0.0625rem 0.5rem;
+  border-radius: var(--radius-small);
+  border: 1px solid currentColor;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.yes {
+  color: var(--color-ok);
+}
+
+.no {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.abstain,
+.none {
+  color: var(--color-text-muted);
+  border-style: dashed;
+  font-weight: 400;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

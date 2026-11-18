@@ -13,6 +13,7 @@ import {
 } from "../components/ui.tsx";
 import { type ClipSearch, PAGE_SIZE, useClipEngines, useClips } from "../clips.ts";
 import { useDevices } from "../devices.ts";
+import { JUDGES_FILTERS, type JudgesFilter, useJudgingStatus } from "../judging.ts";
 import styles from "./ClipsPage.module.css";
 
 export function ClipsPage({ search }: { search: ClipSearch }) {
@@ -20,9 +21,13 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
   const clips = useClips(search);
   const devices = useDevices();
   const engines = useClipEngines();
+  const judging = useJudgingStatus();
   const filtered = Boolean(
-    search.device || search.kind || search.engine || search.from || search.to,
+    search.device || search.kind || search.engine || search.from || search.to || search.judges,
   );
+  const disagreements = search.judges === "disagree";
+  // The quick filter shows once there is something judged to filter.
+  const judged = (judging.data?.judged ?? 0) > 0;
 
   const update = (change: Partial<ClipSearch>) =>
     navigate({ to: "/clips", search: { ...search, ...change, page: undefined }, replace: true });
@@ -38,6 +43,23 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
       <PageHeader
         title="Clips"
         lead="Wake words and near misses your devices saved, newest first."
+        actions={
+          (judged || disagreements) && (
+            <Button
+              variant={disagreements ? "primary" : "secondary"}
+              icon="notEqual"
+              aria-pressed={disagreements}
+              onClick={() => update({ judges: disagreements ? undefined : "disagree" })}
+            >
+              Disagreements
+              {judging.data && (
+                <span className={styles.count}>
+                  {judging.data.disagree.toLocaleString("en-GB")}
+                </span>
+              )}
+            </Button>
+          )
+        }
       />
 
       <form
@@ -80,6 +102,22 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
             {engines.data?.engines.map((engine) => (
               <option key={engine} value={engine}>
                 {engine}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.filter}>
+          <span>Judges</span>
+          <select
+            value={search.judges ?? ""}
+            onChange={(e) =>
+              update({ judges: (e.target.value || undefined) as JudgesFilter | undefined })
+            }
+          >
+            <option value="">Any verdict</option>
+            {JUDGES_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
               </option>
             ))}
           </select>
@@ -131,7 +169,9 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
                   Clear filters
                 </Button>
               }
-            />
+            >
+              {search.judges && judging.data && judgingNote(judging.data)}
+            </EmptyState>
           ) : devices.data?.devices.length === 0 ? (
             <EmptyState
               icon="devices"
@@ -190,4 +230,14 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
       )}
     </>
   );
+}
+
+// Why a judges filter may match nothing yet.
+function judgingNote(status: { configured: boolean; judged: number; waiting: number }) {
+  if (!status.configured) return "Judging is not set up, so no clip has been judged.";
+  if (status.judged === 0) return "No clip has been judged yet.";
+  if (status.waiting > 0) {
+    return `${status.waiting.toLocaleString("en-GB")} ${status.waiting === 1 ? "clip is" : "clips are"} still waiting to be judged.`;
+  }
+  return null;
 }

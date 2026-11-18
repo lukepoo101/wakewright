@@ -11,12 +11,16 @@ import { openDatabase } from "./db/db.ts";
 import { migrate } from "./db/migrate.ts";
 import { Devices } from "./devices.ts";
 import { Collector } from "./ingest.ts";
+import { Judging } from "./judging.ts";
 import type { Logger } from "./log.ts";
 
 export interface Booted {
   db: Database;
   api: ReturnType<typeof createApi>;
   collector: Collector;
+  judging: Judging;
+  /** Ends waiting worker claims, so the HTTP server can stop without waiting for them. */
+  drain(): void;
   /** Stops background work and closes the database. */
   stop(): Promise<void>;
 }
@@ -53,12 +57,14 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
   await measureUnmeasuredClips(db, blobs, log);
   const box = await SecretBox.create(loadSecretKey(config.secretKey, dataDir, log));
   const devices = new Devices(db, box, { fetch, timeoutMs: config.collector.timeoutMs });
+  const judging = new Judging({ db, log, configured: config.worker.token !== undefined });
   const collector = new Collector({
     db,
     blobs,
     devices,
     log,
     intervalMs: config.collector.intervalMs,
+    onStored: () => judging.notify(),
   });
 
   const api = createApi({
@@ -66,6 +72,8 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     auth,
     devices,
     collector,
+    judging,
+    workerToken: config.worker.token,
     blobs,
     intervalMs: config.collector.intervalMs,
     publicUrl: config.server.publicUrl,
@@ -81,11 +89,18 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     }
   });
 
+  if (config.worker.token === undefined) {
+    log.info("judging is off: set WAKEWRIGHT__WORKER__TOKEN to let workers judge clips");
+  }
+
   return {
     db,
     api,
     collector,
+    judging,
+    drain: () => judging.close(),
     async stop() {
+      judging.close();
       backups.stop();
       await collector.stop();
       db.close();

@@ -10,7 +10,8 @@ linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling
 | Task                         | What it runs                                                                                                                                                    |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mise run setup`             | `bun install --frozen-lockfile`                                                                                                                                 |
-| `mise run dev`               | `devtools/dev.ts`: the parent's dev entry on :8080 (data in `.dev-data/`) and fake devices on :23241 and :23242                                                 |
+| `mise run dev`               | `devtools/dev.ts`: the parent's dev entry on :8080 (data in `.dev-data/`), fake devices on :23241 and :23242, and the fake worker                               |
+| `mise run openapi`           | rewrites `docs/api/worker-v1.openapi.json` from the worker API's routes; a unit test fails while it is out of date                                              |
 | `mise run build`             | `bun run build`: the SPA into `dist/public`, the server into `dist/main.js`                                                                                     |
 | `mise run check`             | the checks below, in order                                                                                                                                      |
 | `mise run e2e`               | Playwright: starts a fake device on :23250, builds `dist/` and tests it, or tests `E2E_BASE_URL` when set (the server reaches the fake at `E2E_FAKE_KIOSK_URL`) |
@@ -22,7 +23,11 @@ because Bun 1.4.4's dev bundler breaks TanStack Router under it. The fake
 devices hear a new synthetic clip every 45 and 70 seconds; add them in the UI
 as `127.0.0.1:23241` and `127.0.0.1:23242` with the password `dev`. The
 first reports vsWakeWord scores (threshold 10.5, some over twice that), the
-second microWakeWord probabilities (0–1), so both score scales show.
+second microWakeWord probabilities (0–1), so both score scales show. The
+parent runs with the worker token `dev-worker-token-not-secret`, and the
+fake worker judges each clip within a second of it arriving, with verdicts
+that cover agreement, disagreement and abstention
+([architecture](architecture.md#the-fake-worker)).
 
 `mise run check`:
 

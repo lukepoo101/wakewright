@@ -1,8 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
 import { scoreNumbers } from "../../apps/web/src/score.ts";
+import { fakeVerdicts, runFakeWorker } from "../../devtools/fake-worker/src/worker.ts";
 
 // The user's path through a fresh instance, in order: first-run setup,
-// sign out and in, add the fake device, see its clips arrive, play one.
+// sign out and in, add the fake device, see its clips arrive, play one,
+// then have the fake worker judge them and find the disagreements.
 // Later steps build on earlier ones, so the file runs serially.
 test.describe.configure({ mode: "serial" });
 
@@ -11,6 +13,8 @@ const PASSWORD = "e2e correct horse battery";
 // Where the server under test reaches the fake device, and where the test does.
 const DEVICE_URL = process.env.E2E_FAKE_KIOSK_URL ?? "http://127.0.0.1:23250";
 const FAKE_CONTROL = "http://127.0.0.1:23250";
+// The server under test's worker token (playwright.config.ts, ci.yml).
+const WORKER_TOKEN = "e2e-worker-token-not-secret";
 
 test("first-run setup creates the admin account and signs in", async ({ page }) => {
   await page.goto("/");
@@ -84,6 +88,83 @@ test("a new clip appears and plays with its waveform", async ({ page, request })
   await page.getByRole("button", { name: /^Play / }).click();
   await expect(page.getByRole("button", { name: /^Pause / })).toBeVisible();
   await expect(page.getByText(/^0\.\d\d s \/ 3\.00 s$/)).not.toBeVisible({ timeout: 5_000 });
+});
+
+test("the fake worker judges every clip, and the Disagreements filter finds them", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  await expect(page.getByText("No worker has connected yet")).toBeVisible();
+
+  // What the judges will say about each clip: the fake's verdicts, counted
+  // as the parent counts them (abstentions are not votes).
+  const { clips } = await (await page.request.get("/api/v1/clips?pageSize=100")).json();
+  const expected = new Map<string, string>();
+  for (const clip of clips as { id: string; wakeWord: string }[]) {
+    const audio = await (await page.request.get(`/api/v1/clips/${clip.id}/audio`)).body();
+    const results = await fakeVerdicts(new Uint8Array(audio), clip.wakeWord, [
+      "openwakeword",
+      "microwakeword",
+      "stt",
+    ]);
+    const yes = results.filter((r) => r.verdict === "yes").length;
+    const no = results.filter((r) => r.verdict === "no").length;
+    expected.set(
+      clip.id,
+      yes + no < 2 ? "inconclusive" : yes && no ? "disagree" : yes ? "agree_yes" : "agree_no",
+    );
+  }
+  const disagreeing = [...expected].filter(([, a]) => a === "disagree").map(([id]) => id);
+  // The fake device's clips must include a disagreement for this test to mean anything.
+  expect(disagreeing.length).toBeGreaterThan(0);
+
+  const controller = new AbortController();
+  const worker = runFakeWorker({
+    parentUrl: baseURL ?? "",
+    token: WORKER_TOKEN,
+    name: "e2e-worker",
+    waitSeconds: 5,
+    signal: controller.signal,
+  });
+  try {
+    await expect
+      .poll(async () => (await (await page.request.get("/api/v1/judging")).json()).waiting, {
+        timeout: 20_000,
+      })
+      .toBe(0);
+
+    await page.reload();
+    await expect(page.getByText("e2e-worker connected")).toBeVisible();
+    await page.getByRole("link", { name: /^\d+ disagreements?$/ }).click();
+    await expect(page.getByLabel("Judges")).toHaveValue("disagree");
+    await expect(page.getByRole("button", { name: /Disagreements/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const n = disagreeing.length;
+    await expect(page.getByText(`1–${n} of ${n} clips`)).toBeVisible();
+    const rows = page.getByRole("list", { name: "Clips" }).getByRole("listitem");
+    await expect(rows).toHaveCount(n);
+    await expect(rows.first()).toContainText(/\d of 3 yes/);
+
+    // A disagreement's page shows each judge's verdict.
+    await rows.first().getByRole("link").click();
+    await expect(page.getByRole("heading", { name: "What the judges said" })).toBeVisible();
+    await expect(page.getByText(/^The judges disagree/)).toBeVisible();
+    for (const judge of ["openWakeWord", "microWakeWord", "Speech to text"]) {
+      await expect(page.getByRole("heading", { name: judge })).toBeVisible();
+    }
+
+    // The quick filter turns off again.
+    await page.getByRole("link", { name: "All clips" }).click();
+    await page.getByRole("button", { name: /Disagreements/ }).click();
+    await expect(page.getByLabel("Judges")).toHaveValue("");
+    await expect(page.getByText(`of ${expected.size} clips`)).toBeVisible();
+  } finally {
+    controller.abort();
+    await worker;
+  }
 });
 
 async function signIn(page: Page) {
