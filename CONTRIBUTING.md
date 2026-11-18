@@ -39,11 +39,17 @@ step does and how CI runs them.
 
 ## Pull requests
 
+CI runs every check on your pull request, from a fork too, in about a
+minute; the `CI OK` check must pass. Questions go to
+[Discussions](https://github.com/lukepoo101/wakewright/discussions).
+
 - Keep each pull request to one change, with tests at the lowest level that
   proves it.
 - Write the title as a plain-English, imperative summary of the outcome,
   for example "Show the clip's score on the clip page". Pull requests are
-  squash-merged, so the title becomes the commit.
+  squash-merged, so the title becomes the commit and the changelog entry
+  ([docs/RELEASING.md](docs/RELEASING.md)). There is nothing else to write
+  for the changelog.
 - Fill in the pull request template.
 - Justify any new dependency in the description (why, licence, maintenance).
   `bun add` pins exact versions, and releases younger than three days are
