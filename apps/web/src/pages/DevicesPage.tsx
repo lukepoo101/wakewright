@@ -4,6 +4,7 @@ import { useState } from "react";
 import { call, errorMessage, v1 } from "../api.ts";
 import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
 import { DiagnosticsOff } from "../components/DiagnosticsHelp.tsx";
+import { SessionBanners } from "../components/SessionBanners.tsx";
 import { StatusMark } from "../components/StatusMark.tsx";
 import {
   Alert,
@@ -37,9 +38,10 @@ export function DevicesPage() {
     <>
       <PageHeader
         title="Devices"
-        lead="The voice satellites Wakewright collects clips from. It only reads from them."
+        lead="The voice satellites Wakewright collects clips from. It reads from them, and changes their wake word sensitivity only during a collection session you start."
         actions={devices.data?.devices.length ? addLink : undefined}
       />
+      <SessionBanners />
       {devices.isPending && <Loading label="Loading devices…" />}
       {devices.isError && (
         <Alert tone="error" title="Cannot load devices">
@@ -122,6 +124,26 @@ function DeviceCard({ device }: { device: Device }) {
             >
               {poll.isPending ? "Checking…" : "Check now"}
             </Button>
+            {device.collectionSession ? (
+              <Link
+                to="/collect/$sessionId"
+                params={{ sessionId: device.collectionSession.id }}
+                className={buttonClass("primary", "small")}
+              >
+                {device.collectionSession.state === "running"
+                  ? "Session running"
+                  : "Open its session"}
+              </Link>
+            ) : (
+              <Link
+                to="/collect/new"
+                search={{ device: device.id }}
+                className={buttonClass("secondary", "small")}
+                aria-label={`Start a collection session on ${device.name}`}
+              >
+                Collection session
+              </Link>
+            )}
             <Link
               to="/devices/$deviceId/edit"
               params={{ deviceId: device.id }}
@@ -202,6 +224,8 @@ function DeviceCard({ device }: { device: Device }) {
         <p>
           Wakewright stops collecting from this device and forgets its password. The{" "}
           {plural(device.clips, "clip")} already collected stay. Nothing changes on the device.
+          {device.collectionSession &&
+            " It cannot be removed while its collection session has not put its settings back."}
         </p>
         {remove.isError && <Alert tone="error">{errorMessage(remove.error)}</Alert>}
       </ConfirmDialog>

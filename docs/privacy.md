@@ -25,7 +25,13 @@ anyone in the room, including guests and children.
   them. (Deleting clips from the UI comes in a later version; until then,
   removing the data volume removes everything.)
 - **Pause** in the top bar stops collection at once. Clips a device saves
-  while paused are never stored. Pausing changes nothing on the device.
+  while paused are never stored. Pausing changes nothing on the device,
+  except that a running collection session ends and puts its settings
+  back.
+- **Collection sessions record more.** While one runs, its tablet wakes
+  on almost anything said nearby, and every wake and near miss is kept, so
+  tell the people in the room. The tablet also acts on what it hears, as
+  it always does when it wakes.
 - **Behind a login.** The web UI and every clip need the admin account,
   or, with `WAKEWRIGHT__AUTH__MODE=none`, the sign-in of the reverse proxy
   in front of it.

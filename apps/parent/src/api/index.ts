@@ -8,7 +8,9 @@ import type { Collector } from "../ingest.ts";
 import type { Judges } from "../judges.ts";
 import type { Judging } from "../judging.ts";
 import { version } from "../version.ts";
+import type { CollectionSessions } from "../sessions.ts";
 import { clipRoutes } from "./clips.ts";
+import { collectionSessionRoutes } from "./collection-sessions.ts";
 import { type CookiePolicy, newApi, requireUser } from "./common.ts";
 import { deviceRoutes } from "./devices.ts";
 import { healthRoutes } from "./health.ts";
@@ -28,6 +30,7 @@ export interface ApiDeps {
   judging: Judging;
   judges: Judges;
   workers: Workers;
+  sessions: CollectionSessions;
   /** The collector's poll interval, shown in the UI. */
   intervalMs: number;
   /** The configured public address, if any (WAKEWRIGHT__SERVER__PUBLIC_URL). */
@@ -52,6 +55,7 @@ export function createApi(deps: ApiDeps) {
     .route("/", healthRoutes(deps.db))
     .route("/api/v1", sessionRoutes(deps.auth, policy))
     .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)))
+    .route("/api/v1", collectionSessionRoutes(deps, requireUser(deps.auth, policy)))
     .route("/api/v1", clipRoutes(deps, requireUser(deps.auth, policy)))
     .route("/api/v1", judgingRoutes(deps.judging, requireUser(deps.auth, policy)))
     .route("/api/v1", judgeRoutes(deps, requireUser(deps.auth, policy)))

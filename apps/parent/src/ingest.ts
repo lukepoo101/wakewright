@@ -4,6 +4,7 @@ import { type SettingsSnapshot, settingsForClip } from "./clip-settings.ts";
 import { longestFullScaleRun } from "./clipping.ts";
 import { clipExists, insertClip } from "./db/clips.ts";
 import { insidePause, openPause } from "./db/collection.ts";
+import { boostedDevices, type SessionRow, sessionAt, sessionBetween } from "./db/sessions.ts";
 import {
   type DeviceRow,
   getDevice,
@@ -22,7 +23,8 @@ import {
 import { checkClipWav, WavError } from "./wav.ts";
 
 // The collector: polls every device on an interval, stores the clips it has
-// not seen and records each device's status. It only reads from devices.
+// not seen and records each device's status. It only reads from devices;
+// collection sessions (sessions.ts) make the one write.
 //
 // - Idempotent: a clip is stored once per (device, source_ref), so a
 //   restart, a retry or two overlapping polls never duplicate it. Nothing is
@@ -35,11 +37,23 @@ import { checkClipWav, WavError } from "./wav.ts";
 // - A clip keeps the device's settings only when they were read close to
 //   the moment it was recorded (clip-settings.ts); a poll that finds new
 //   clips reads the settings again first.
+// - A device in a collection session (sessions.ts) is polled every
+//   SESSION_POLL_MS, as it may wake every few seconds and keeps only 10 of
+//   each kind. A clip recorded in a session is tagged with it and carries
+//   the boosted settings the session confirmed; no clip gets settings read
+//   on the other side of a session's change.
 
 const MAX_BACKOFF_MS = 5 * 60_000;
 /** How often to re-read a device's settings and health. */
 const STATE_EVERY_MS = 5 * 60_000;
 const TICK_MS = 1000;
+/**
+ * The poll interval during a collection session. The device keeps 10
+ * wake words and 10 near misses and an engine fires at most every 2 s
+ * (its cooldown), so 2 s polls leave about 20 s of margin even when every
+ * poll finds a new clip.
+ */
+export const SESSION_POLL_MS = 2000;
 
 export interface CollectorOptions {
   db: Database;
@@ -121,6 +135,10 @@ export class Collector {
     return poll;
   }
 
+  private intervalFor(deviceId: string, boosted = boostedDevices(this.db)): number {
+    return boosted.has(deviceId) ? Math.min(SESSION_POLL_MS, this.intervalMs) : this.intervalMs;
+  }
+
   private schedule(ms: number): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.tick(), ms);
@@ -131,9 +149,10 @@ export class Collector {
     try {
       if (!openPause(this.db)) {
         const now = this.now();
+        const boosted = boostedDevices(this.db);
         for (const device of listDevices(this.db)) {
           if ((this.dueAt.get(device.id) ?? 0) > now || this.inFlight.has(device.id)) continue;
-          this.dueAt.set(device.id, now + this.intervalMs);
+          this.dueAt.set(device.id, now + this.intervalFor(device.id, boosted));
           void this.pollDevice(device.id);
         }
       }
@@ -173,19 +192,32 @@ export class Collector {
         if (this.rejected.get(device.id)?.has(entry.ref)) continue;
         fresh.push(entry);
       }
-      // Settings describe a clip only when read close to the moment it was
-      // recorded (clip-settings.ts), so read them again for new clips
-      // unless this poll just did.
-      if (fresh.length > 0 && reportedAt === null) {
+      // A clip recorded in a collection session carries its session and the
+      // settings the session confirmed. Settings describe any other clip
+      // only when read close to the moment it was recorded
+      // (clip-settings.ts), so read them again for those unless this poll
+      // just did.
+      const sessions = new Map(
+        fresh.map((e) => [e.ref, sessionAt(this.db, device.id, e.capturedAt)]),
+      );
+      if (fresh.some((e) => !sessions.get(e.ref)) && reportedAt === null) {
         reported = await connection.readState();
         readAt = this.now();
         reportedAt = iso();
       }
       reported = { ...reported, diagnosticsEnabled: poll.diagnosticsEnabled };
+      const readIso = new Date(readAt).toISOString();
       for (const entry of fresh) {
         try {
-          const settings = settingsForClip(entry, reported, readAt);
-          if (await this.store(device, connection, entry, settings, iso())) stored++;
+          const session = sessions.get(entry.ref) ?? null;
+          const settings = session
+            ? sessionSettings(session, entry.capturedAt)
+            : sessionBetween(this.db, device.id, entry.capturedAt, readIso)
+              ? null
+              : settingsForClip(entry, reported, readAt);
+          if (await this.store(device, connection, entry, settings, iso(), session?.id ?? null)) {
+            stored++;
+          }
         } catch (error) {
           // A problem with this one clip must not hold up the others; a
           // problem with the device (offline, password) ends the poll.
@@ -218,7 +250,10 @@ export class Collector {
       const described = describeError(error);
       if (described.code === "auth_failed") this.connections.delete(device.id);
       const failures = recordPollFailure(this.db, device.id, { at: iso(), ...described });
-      const backoff = Math.min(this.intervalMs * 2 ** Math.max(0, failures - 1), MAX_BACKOFF_MS);
+      const backoff = Math.min(
+        this.intervalFor(device.id) * 2 ** Math.max(0, failures - 1),
+        MAX_BACKOFF_MS,
+      );
       this.dueAt.set(device.id, this.now() + backoff);
       // Log the first failure and then every tenth, not every retry.
       const logAt = failures === 1 || failures % 10 === 0 ? "warn" : "debug";
@@ -233,6 +268,7 @@ export class Collector {
     entry: ClipEntry,
     settings: SettingsSnapshot | null,
     ingestedAt: string,
+    sessionId: string | null,
   ): Promise<boolean> {
     const audio = await connection.fetchAudio(entry);
     const wav = checkClipWav(audio);
@@ -258,6 +294,7 @@ export class Collector {
         duration_ms: wav.durationMs,
         sensitivity_json: settings === null ? null : JSON.stringify(settings),
         source_meta_json: JSON.stringify(entry.meta),
+        collection_session_id: sessionId,
       },
       { size: blob.size, mediaType: "audio/wav" },
     );
@@ -283,6 +320,16 @@ export class Collector {
     set.add(ref);
     this.rejected.set(deviceId, set);
   }
+}
+
+// The boosted settings, for a clip recorded after the session confirmed
+// them and before it began to put them back; unknown in between.
+function sessionSettings(session: SessionRow, capturedAt: string): SettingsSnapshot | null {
+  if (!session.started_at || capturedAt < session.started_at) return null;
+  if (session.restore_started_at && capturedAt > session.restore_started_at) return null;
+  return session.applied_settings_json
+    ? (JSON.parse(session.applied_settings_json) as SettingsSnapshot | null)
+    : null;
 }
 
 function isClipProblem(error: unknown): boolean {

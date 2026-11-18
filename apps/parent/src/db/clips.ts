@@ -30,6 +30,8 @@ export type ClipRow = {
   duration_ms: number;
   sensitivity_json: string | null;
   source_meta_json: string;
+  /** The collection session it was recorded in (ADR 0020), if any. */
+  collection_session_id: string | null;
 };
 
 export function clipExists(db: Database, deviceId: string, sourceRef: string): boolean {
@@ -60,10 +62,12 @@ export function insertClip(
       .query(
         `INSERT INTO clips (id, device_id, source_ref, audio_sha256, captured_at, ingested_at,
            capture_reason, wake_word, engine, score, threshold, peak_db, rms_db,
-           clipped_samples, clipped_longest_run, duration_ms, sensitivity_json, source_meta_json)
+           clipped_samples, clipped_longest_run, duration_ms, sensitivity_json, source_meta_json,
+           collection_session_id)
          VALUES ($id, $device_id, $source_ref, $audio_sha256, $captured_at, $ingested_at,
            $capture_reason, $wake_word, $engine, $score, $threshold, $peak_db, $rms_db,
-           $clipped_samples, $clipped_longest_run, $duration_ms, $sensitivity_json, $source_meta_json)
+           $clipped_samples, $clipped_longest_run, $duration_ms, $sensitivity_json, $source_meta_json,
+           $collection_session_id)
          ON CONFLICT (device_id, source_ref) DO NOTHING`,
       )
       .run(clip);
@@ -86,6 +90,8 @@ export interface ClipFilter {
   mismatch?: Mismatch;
   /** A counted judge voted against the outcome. */
   dissent?: boolean;
+  /** "any": recorded in some collection session; otherwise that session's id. */
+  session?: string;
 }
 
 export type ClipListRow = ClipRow & JudgingColumns;
@@ -124,6 +130,12 @@ function where(filter: ClipFilter): { sql: string; params: Record<string, string
     params.mismatch = filter.mismatch;
   }
   if (filter.dissent) parts.push(DISSENT);
+  if (filter.session === "any") {
+    parts.push("c.collection_session_id IS NOT NULL");
+  } else if (filter.session) {
+    parts.push("c.collection_session_id = $session");
+    params.session = filter.session;
+  }
   return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", params };
 }
 

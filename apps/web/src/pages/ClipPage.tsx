@@ -8,6 +8,7 @@ import { Icon } from "../components/Icon.tsx";
 import { JudgesCard } from "../components/JudgesCard.tsx";
 import { Alert, buttonClass, Card, Loading, PageHeader, useTitle } from "../components/ui.tsx";
 import { audioUrl, type Clip, type ClipSearch, kindLabel, useClip } from "../clips.ts";
+import { NOTE_LABELS } from "../collect.ts";
 import { longDateTime, shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
 import { scoreSummary } from "../score.ts";
@@ -255,14 +256,36 @@ function Details({ clip: c }: { clip: Clip }) {
           <>
             Not known
             <span className={styles.hint}>
-              Wakewright did not read the device's settings close enough to when this clip was
-              recorded (for example, it is an older clip the device handed over when it was added),
-              so they may have been different. The wake word, engine, score and threshold above are
-              the device's own record of this clip.
+              {c.collectionSession
+                ? "This clip was recorded in a collection session while its settings were being changed or put back, so they were in between. The wake word, engine, score and threshold above are the device's own record of this clip."
+                : "Wakewright did not read the device's settings close enough to when this clip was recorded (for example, it is an older clip the device handed over when it was added), so they may have been different. The wake word, engine, score and threshold above are the device's own record of this clip."}
             </span>
           </>
         )}
       </dd>
+      {c.collectionSession && (
+        <>
+          <dt>Collection session</dt>
+          <dd>
+            <Link to="/collect/$sessionId" params={{ sessionId: c.collectionSession.id }}>
+              {c.collectionSession.startedAt
+                ? `Started ${shortDateTime(c.collectionSession.startedAt)}`
+                : "Open the session"}
+            </Link>
+            {" · "}
+            {c.collectionSession.note ? NOTE_LABELS[c.collectionSession.note] : "no note"}
+            {" · "}
+            <Link to="/clips" search={{ session: c.collectionSession.id }}>
+              its clips
+            </Link>
+            <span className={styles.hint}>
+              Recorded while the device's sensitivity was turned up for a collection session. The
+              note says what the person collecting meant to do; it is kept for training and does not
+              change the outcome.
+            </span>
+          </dd>
+        </>
+      )}
       <dt>Collected</dt>
       <dd>{longDateTime(c.ingestedAt)}</dd>
     </dl>

@@ -12,7 +12,9 @@ import {
   PageHeader,
 } from "../components/ui.tsx";
 import { type ClipSearch, PAGE_SIZE, useClipEngines, useClips } from "../clips.ts";
+import { useSessions } from "../collect.ts";
 import { useDevices } from "../devices.ts";
+import { shortDateTime } from "../format.ts";
 import { JUDGES_FILTERS, type JudgesFilter, useJudgingStatus } from "../judging.ts";
 import styles from "./ClipsPage.module.css";
 
@@ -22,8 +24,16 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
   const devices = useDevices();
   const engines = useClipEngines();
   const judging = useJudgingStatus();
+  const sessions = useSessions();
+  const collected = sessions.data?.sessions.filter((s) => s.startedAt) ?? [];
   const filtered = Boolean(
-    search.device || search.kind || search.engine || search.from || search.to || search.judges,
+    search.device ||
+    search.kind ||
+    search.engine ||
+    search.from ||
+    search.to ||
+    search.judges ||
+    search.session,
   );
   const uncertain = search.judges === "uncertain";
   // The quick filter shows once there is something judged to filter.
@@ -120,6 +130,26 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
                 {f.label}
               </option>
             ))}
+          </select>
+        </label>
+        <label className={styles.filter}>
+          <span>Session</span>
+          <select
+            value={search.session ?? ""}
+            onChange={(e) => update({ session: e.target.value || undefined })}
+          >
+            <option value="">Any clip</option>
+            <option value="any">From a collection session</option>
+            {collected.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.deviceName}, {shortDateTime(s.createdAt)}
+              </option>
+            ))}
+            {search.session &&
+              search.session !== "any" &&
+              !collected.some((s) => s.id === search.session) && (
+                <option value={search.session}>One session</option>
+              )}
           </select>
         </label>
         <label className={styles.filter}>

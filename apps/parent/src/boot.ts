@@ -13,11 +13,14 @@ import { Devices } from "./devices.ts";
 import { Collector } from "./ingest.ts";
 import { Judges } from "./judges.ts";
 import { Judging } from "./judging.ts";
+import { openPause } from "./db/collection.ts";
+import { CollectionSessions } from "./sessions.ts";
 import type { Logger } from "./log.ts";
 import { Workers } from "./workers.ts";
 
 export interface Booted {
   db: Database;
+  sessions: CollectionSessions;
   api: ReturnType<typeof createApi>;
   collector: Collector;
   judging: Judging;
@@ -72,6 +75,14 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     onStored: () => judging.notify(),
   });
 
+  const sessions = new CollectionSessions({
+    db,
+    devices,
+    log,
+    paused: () => openPause(db) !== null,
+    onChange: (deviceId) => collector.wake(deviceId),
+  });
+
   const api = createApi({
     db,
     auth,
@@ -80,11 +91,14 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     judging,
     judges,
     workers,
+    sessions,
     blobs,
     intervalMs: config.collector.intervalMs,
     publicUrl: config.server.publicUrl,
   });
 
+  // Sessions first: one left open by the last run is restored at once.
+  sessions.start();
   collector.start();
   const backups = Bun.cron("30 3 * * *", () => {
     try {
@@ -103,6 +117,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
 
   return {
     db,
+    sessions,
     api,
     collector,
     judging,
@@ -110,6 +125,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     async stop() {
       judging.close();
       backups.stop();
+      await sessions.stop();
       await collector.stop();
       db.close();
     },

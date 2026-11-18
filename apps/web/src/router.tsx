@@ -6,6 +6,7 @@ import { AuthScreen, LoginPage, SetupPage } from "./pages/AuthPages.tsx";
 import { parseClipSearch } from "./clips.ts";
 import { ClipPage } from "./pages/ClipPage.tsx";
 import { ClipsPage } from "./pages/ClipsPage.tsx";
+import { SessionPage, SessionsPage, StartSessionPage } from "./pages/CollectPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { EditDevicePage, NewDevicePage } from "./pages/DeviceFormPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
@@ -105,6 +106,32 @@ const clipRoute = createRoute({
   },
 });
 
+const collectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/collect",
+  component: SessionsPage,
+});
+
+const startCollectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/collect/new",
+  validateSearch: (raw: Record<string, unknown>): { device?: string } => ({
+    device: typeof raw.device === "string" && raw.device ? raw.device : undefined,
+  }),
+  component: function StartCollectRoute() {
+    return <StartSessionPage deviceId={startCollectRoute.useSearch().device} />;
+  },
+});
+
+const sessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/collect/$sessionId",
+  component: function SessionRoute() {
+    const { sessionId } = sessionRoute.useParams();
+    return <SessionPage sessionId={sessionId} />;
+  },
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   clipsRoute,
@@ -112,6 +139,9 @@ const routeTree = rootRoute.addChildren([
   devicesRoute,
   newDeviceRoute,
   editDeviceRoute,
+  collectRoute,
+  startCollectRoute,
+  sessionRoute,
   judgesRoute,
   workersRoute,
 ]);

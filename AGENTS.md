@@ -38,8 +38,11 @@ Do not add `check` or `fmt` scripts to a `package.json`: `bun check` and
   `.sql` files listed in `apps/parent/src/db/migrate.ts`.
 - Configuration is `WAKEWRIGHT__SECTION__KEY` environment variables,
   validated in `apps/parent/src/config.ts`.
-- Device access is read only. Never call a Kiosk Satellite command that
-  changes the device.
+- Device access is read only, with one exception: a collection session
+  (`sessions.ts`, [ADR 0020](docs/adr/0020-collection-sessions.md)) may
+  `PATCH` the wake word engine, sensitivity and fine-tune, saving them
+  first and always putting them back and confirming. Never call any other
+  Kiosk Satellite write or command that changes a device.
 - No real audio, credentials or third-party assets in the repository; test
   audio is generated in code (`devtools/fake-kiosk/src/synth.ts`).
 - The worker (`apps/worker`) is Python 3.13 with uv: `uv add --exact`,

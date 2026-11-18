@@ -35,8 +35,11 @@ The loop it is built towards:
    today, with honest confidence intervals, and offer the best one as a
    download with written install instructions.
 
-Wakewright only reads from devices ([ADR 0008](../adr/0008-read-only-device-access.md)).
-You apply any setting or model yourself.
+Wakewright reads from devices ([ADR 0008](../adr/0008-read-only-device-access.md)),
+with one exception: a collection session you start turns one tablet's wake
+word sensitivity up for a time limit and always puts it back
+([ADR 0020](../adr/0020-collection-sessions.md)). You apply any lasting
+setting or model yourself.
 
 ## Scope
 
@@ -46,7 +49,8 @@ user's own hardware; plain Docker Compose or Kubernetes.
 
 Out of scope for now:
 
-- Sending anything to a device: settings, models or test audio. A
+- Sending anything else to a device: lasting settings, models or test
+  audio. A
   "deployer" that installs a model, and canary testing of a model on one
   device before others, are possible future work and would each need a
   new ADR.

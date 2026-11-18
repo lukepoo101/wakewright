@@ -26,7 +26,7 @@ parent weighs their votes into an outcome per clip.
             │                                              ▼                              │
             │   collector ──► Source (Kiosk) ──► blob store + bun:sqlite (WAL, /data)     │
             └──────────────────────│───────────────────────────────────────────────────┘
-                                   ▼ HTTP, read only
+                                   ▼ HTTP: reads; wake word settings only in a collection session
                        Kiosk Satellite devices (:2324)
 ```
 
@@ -65,8 +65,18 @@ parent weighs their votes into an outcome per clip.
   encrypted with AES-256-GCM under a key kept outside the database
   ([ADR 0011](adr/0011-collecting-clips.md),
   [ADR 0012](adr/0012-device-password-encryption.md)).
+- **Collection sessions** (`sessions.ts`, `db/sessions.ts`,
+  `kiosk/collection-mode.ts`, `/api/v1/collection-sessions`): the one
+  write to a device. For a time limit the user sets, one device runs its
+  most sensitive wake word settings (engine, sensitivity, fine-tune) and
+  is polled every 2 s; its clips are tagged with the session. The values
+  it changes are saved with a hash before the write, confirmed after it,
+  and written back and confirmed on Stop, at the time limit (a loop in the
+  parent), on pause and at start-up after a crash, retried with backoff
+  until a read of the device matches
+  ([ADR 0020](adr/0020-collection-sessions.md)).
 - **Clips**: `/api/v1/clips` lists clips newest first with filters (device,
-  kind, engine, time) and paging; one clip comes with its newer and older neighbours
+  kind, engine, time, collection session) and paging; one clip comes with its newer and older neighbours
   under the same filter, and its audio is served with `Range`, `ETag` and a
   private cache policy so the browser can seek. The SPA draws the waveform
   with wavesurfer.js from the WAV itself; lists play through one shared
@@ -150,6 +160,7 @@ apps/parent/          @wakewright/parent: the server
   src/auth.ts         admin account, sessions, login throttle
   src/source.ts       the Source interface every kind of device implements
   src/ingest.ts       the collector: polling, storing clips, status, pause
+  src/sessions.ts     collection sessions: save, boost, time limit, restore and confirm
   src/judging.ts      judging: claims and leases, routing, the long poll, results, backoff, tests
   src/judges.ts       judges: instances of advertised types, settings, sealed secrets, the rule
   src/judge-settings.ts checking settings against a type's schema; the settings fingerprint
@@ -167,7 +178,8 @@ apps/parent/          @wakewright/parent: the server
   src/spa.ts          serves the built SPA
   src/api/            one file per API area, mounted in api/index.ts (exports AppType)
   src/db/             db.ts (connection), migrate.ts (runner + list), migrations/NNNN_*.sql
-  src/kiosk/          Kiosk Satellite: client.ts, source.ts (the adapter), shapes.ts (zod shapes)
+  src/kiosk/          Kiosk Satellite: client.ts, source.ts (the adapter), shapes.ts (zod shapes),
+                      collection-mode.ts (what a collection session changes)
   test/               bun test: unit and in-process integration tests
 apps/web/             @wakewright/web: the SPA
   index.html  src/{main.tsx,router.tsx,api.ts,tokens.css}
@@ -204,9 +216,11 @@ tokens that expire, login throttling, a ring buffer of 10 per kind, settings
 with wake word diagnostics on or off that can change (`setSettings()`), new
 clips over time (`hear()`), older clips from an earlier engine handed over
 at start (`history`), the same wake word in two slots, and clips that touch
-full scale at one sample or clip outright.
+full scale at one sample or clip outright, fleet membership, and
+`PATCH /api/settings` of the wake word engine, sensitivity and fine-tune,
+checked key by key as the app does and recorded in `writes`.
 Tests inject faults through `faults` (offline, slow, malformed list, invalid
-audio, a download that breaks); `mise run dev` and E2E reach the same
+audio, a download that breaks, a device that answers 503, keys it refuses); `mise run dev` and E2E reach the same
 controls over HTTP under `/_fake/`. Extend it alongside the client.
 
 ## The fake worker
@@ -234,7 +248,7 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0005 [SQLite with plain SQL and numbered migrations](adr/0005-sqlite-and-migrations.md)
 - 0006 [Tooling: Bun, Biome for lint, mise tasks](adr/0006-tooling.md)
 - 0007 [No telemetry](adr/0007-no-telemetry.md)
-- 0008 [Read-only device access](adr/0008-read-only-device-access.md)
+- 0008 [Read-only device access](adr/0008-read-only-device-access.md), amended by 0020
 - 0009 [CI checks, fork safety and speed](adr/0009-ci-checks-and-fork-safety.md)
 - 0010 [Releases, changelog and published images](adr/0010-releases-changelog-and-images.md)
 - 0011 [Collecting clips: a Source interface and an idempotent poller](adr/0011-collecting-clips.md)
@@ -246,3 +260,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0017 [The worker: Python with uv, three downloaded judges, a second image](adr/0017-the-worker.md)
 - 0018 [Workers as records with their own tokens, created in the UI or declared](adr/0018-workers-with-their-own-tokens.md)
 - 0019 [Configurable, weighted judges: types in the worker, instances in the parent](adr/0019-configurable-weighted-judges.md)
+- 0020 [Collection sessions: the one write to a device](adr/0020-collection-sessions.md)

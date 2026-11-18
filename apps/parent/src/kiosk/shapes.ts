@@ -5,9 +5,10 @@ import { z } from "zod";
 // responses with these, and the fake device (devtools/fake-kiosk) builds its
 // responses from them, so the two cannot drift apart silently.
 //
-// Wakewright only reads from a device: login, health, settings, the wake
-// word diagnostics list and clip audio. It never calls a command that
-// writes.
+// Wakewright reads from a device: login, health, settings, the wake word
+// diagnostics list and clip audio. Its one write is `PATCH /api/settings`
+// of the three wake word sensitivity settings, made only by a collection
+// session the user starts (ADR 0020).
 
 /** `POST /api/login`. `ttl_days` asks for a longer-lived token. */
 export const LoginRequest = z.object({
@@ -109,6 +110,9 @@ export const SettingEntry = z.looseObject({
   value: z.unknown(),
   options: z.array(z.string()).optional(),
   optionLabels: z.record(z.string(), z.string()).optional(),
+  /** Number settings: their range. */
+  min: z.number().optional(),
+  max: z.number().optional(),
 });
 export type SettingEntry = z.infer<typeof SettingEntry>;
 
@@ -124,3 +128,19 @@ export const WakeSettingKeys = {
   sensitivity: "voice.wake_word_sensitivity",
   fineTune: "voice.wake_word_fine_tune",
 } as const;
+
+/**
+ * `PATCH /api/settings` takes `{key: value, ...}` and answers 200 with
+ * the keys it refused. It applies the accepted keys one by one, so a
+ * partly refused write has changed the others.
+ */
+export const SettingsPatchRequest = z.record(z.string(), z.unknown());
+export type SettingsPatchRequest = z.infer<typeof SettingsPatchRequest>;
+
+export const SettingsPatchResponse = z.looseObject({
+  ok: z.boolean(),
+  rejected: z.array(z.string()),
+  /** The device's reason per refused key, where it has one. */
+  errors: z.record(z.string(), z.string()).optional(),
+});
+export type SettingsPatchResponse = z.infer<typeof SettingsPatchResponse>;

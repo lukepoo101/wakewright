@@ -12,15 +12,19 @@ and lets you browse and play them. Later versions will label clips, build
 datasets, and train and compare wake word models offline.
 
 It works with [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite)
-devices over their HTTP API. Wakewright only reads from a device; it never
-changes its settings or installs anything on it.
+devices over their HTTP API. Wakewright reads from a device and never
+installs anything on it. The one thing it changes is the wake word
+sensitivity, during a collection session you start, for a time limit, and
+it always puts the settings back and confirms they are back.
 
 > **Status: pre-alpha.** Wakewright collects Kiosk Satellite clips,
 > stores them, and lets you browse and play them in a web UI. A worker
 > judges each clip with the judges you configure (openWakeWord,
 > microWakeWord, local speech to text, and optional cloud speech-to-text
 > APIs), weighs their votes into an outcome, and the UI shows the uncertain
-> clips and where the outcome disagrees with the device. Labelling, datasets and training are not built yet. Two images,
+> clips and where the outcome disagrees with the device. A collection
+> session turns one tablet's sensitivity right up for a few minutes to
+> gather many clips at once. Labelling, datasets and training are not built yet. Two images,
 > `ghcr.io/lukepoo101/wakewright` (the parent) and
 > `ghcr.io/lukepoo101/wakewright-worker`, for amd64 and arm64, carry each
 > [release](https://github.com/lukepoo101/wakewright/releases)'s version
@@ -40,7 +44,7 @@ changes its settings or installs anything on it.
 ## How it fits together
 
 ```
- Kiosk Satellite devices ──(HTTP, read only)──► parent ──► SQLite + blob store
+ Kiosk Satellite devices ──(HTTP, reads)──► parent ──► SQLite + blob store
                                                   │
                                     browser ◄─────┘ web UI (React SPA)
 ```

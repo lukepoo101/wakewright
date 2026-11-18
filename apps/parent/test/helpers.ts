@@ -14,6 +14,8 @@ import { Collector } from "../src/ingest.ts";
 import { Judges } from "../src/judges.ts";
 import { Judging } from "../src/judging.ts";
 import { createLogger, type Logger } from "../src/log.ts";
+import { openPause } from "../src/db/collection.ts";
+import { CollectionSessions } from "../src/sessions.ts";
 import type { DeclaredWorker } from "../src/config.ts";
 import { Workers } from "../src/workers.ts";
 
@@ -47,6 +49,7 @@ export interface Parts {
   judging: Judging;
   judges: Judges;
   workers: Workers;
+  sessions: CollectionSessions;
   dataDir: string;
 }
 
@@ -103,7 +106,16 @@ export async function testParts(
     now: options.now,
     onStored: () => judging.notify(),
   });
-  return { db, blobs, devices, collector, judging, judges, workers, dataDir };
+  // Not started: tests drive its loop with tick(), and start() for a restart.
+  const sessions = new CollectionSessions({
+    db,
+    devices,
+    log: options.log ?? quietLog,
+    paused: () => openPause(db) !== null,
+    onChange: (deviceId) => collector.wake(deviceId),
+    now: options.now,
+  });
+  return { db, blobs, devices, collector, judging, judges, workers, sessions, dataDir };
 }
 
 export async function testApi(

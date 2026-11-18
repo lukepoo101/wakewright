@@ -1,13 +1,16 @@
 import { z } from "zod";
 import {
   type ClipEntry,
+  type CollectionOptions,
   type PollResult,
   type ReportedState,
   type Source,
   type SourceConnection,
   SourceError,
+  type WriteResult,
 } from "../source.ts";
 import { KioskClient } from "./client.ts";
+import { COLLECTION_KEYS, collectionOptions } from "./collection-mode.ts";
 import { type Activation, type SettingEntry, WakeSettingKeys } from "./shapes.ts";
 
 // The Kiosk Satellite source. A device keeps its last 10 activations and
@@ -102,6 +105,31 @@ class KioskConnection implements SourceConnection {
       nearMisses: newest(data.nearMisses, previous.nearMisses),
     };
     return { diagnosticsEnabled: data.enabled, entries, cursor: next, gapDetected: gap };
+  }
+
+  async collectionOptions(): Promise<CollectionOptions> {
+    const health = await this.client.health();
+    const { settings } = await this.client.settings();
+    return collectionOptions(settings, health);
+  }
+
+  async readSettings(keys: readonly string[]): Promise<Record<string, unknown>> {
+    const { settings } = await this.client.settings();
+    const byKey = new Map(settings.map((s) => [s.key, s.value]));
+    return Object.fromEntries(keys.map((k) => [k, byKey.get(k)]));
+  }
+
+  async writeSettings(values: Record<string, unknown>): Promise<WriteResult> {
+    const allowed: readonly string[] = COLLECTION_KEYS;
+    const other = Object.keys(values).filter((k) => !allowed.includes(k));
+    if (other.length > 0) {
+      throw new Error(
+        `Refusing to write settings outside a collection session: ${other.join(", ")}`,
+      );
+    }
+    if (Object.keys(values).length === 0) return { rejected: [], errors: {} };
+    const answer = await this.client.patchSettings(values);
+    return { rejected: answer.rejected, errors: answer.errors ?? {} };
   }
 
   async fetchAudio(entry: ClipEntry): Promise<Uint8Array> {

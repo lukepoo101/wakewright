@@ -6,6 +6,7 @@ import { createFakeKiosk } from "./server.ts";
 //   [--name kitchen] [--password dev] [--every 60] [--initial 6] [--seed 1]
 //   [--diagnostics off] [--engine vsWakeWord|microWakeWord]
 //   [--wake-words alexa,alexa] [--history microWakeWord:8:10]
+//   [--fleet leader|follows:NAME]
 //
 // --wake-words lists the wake word slots (a real device may repeat one).
 // --history ENGINE:COUNT:DAYS starts with COUNT older clips from another
@@ -25,11 +26,17 @@ const { values } = parseArgs({
     engine: { type: "string", default: "vsWakeWord" },
     "wake-words": { type: "string" },
     history: { type: "string" },
+    fleet: { type: "string" },
   },
 });
 
 const engineOf = (text: string | undefined) =>
-  text === "microWakeWord" ? "microWakeWord" : "vsWakeWord";
+  text === "microWakeWord" || text === "openWakeWord" ? text : "vsWakeWord";
+const fleet = values.fleet?.startsWith("follows:")
+  ? { follows: values.fleet.slice("follows:".length) }
+  : values.fleet === "leader"
+    ? { leader: true as const }
+    : undefined;
 const [historyEngine, historyCount, historyDays] = values.history?.split(":") ?? [];
 
 const fake = createFakeKiosk({
@@ -40,6 +47,7 @@ const fake = createFakeKiosk({
   diagnostics: values.diagnostics !== "off",
   engine: engineOf(values.engine),
   wakeWords: values["wake-words"]?.split(","),
+  fleet,
   history: values.history
     ? {
         engine: engineOf(historyEngine),

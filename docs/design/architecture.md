@@ -18,7 +18,7 @@ flowchart LR
   end
   worker["Workers<br/>(Python, stateless)"]
 
-  collector -- "HTTP, read only" --> devices
+  collector -- "HTTP: reads; a collection session's settings" --> devices
   collector --> store
   api --> store
   workerapi --> store
@@ -136,4 +136,6 @@ Devices are reached through a `Source` interface
 implementation and will become a separate package when a second source
 arrives. Judges, trainers and evaluators are planned as Python entry
 points loaded by the worker, so third parties can add one without
-forking. Any plugin kind that writes to a device is out of scope for now.
+forking. Any plugin kind that writes to a device is out of scope for now;
+the only write is a collection session's temporary change of the wake
+word settings ([ADR 0020](../adr/0020-collection-sessions.md)).

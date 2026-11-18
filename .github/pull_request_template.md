@@ -20,4 +20,4 @@ did not verify.
 - [ ] Docs and ADRs describe the system as it now is
 - [ ] Any new dependency is justified above (why, licence, maintenance)
 - [ ] No real audio, credentials, or Kiosk Satellite or other third-party assets added
-- [ ] Device access stays read only
+- [ ] Device access stays read only (a collection session's wake word settings excepted, ADR 0020)

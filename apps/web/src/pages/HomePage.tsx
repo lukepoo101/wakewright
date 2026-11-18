@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { errorMessage } from "../api.ts";
 import { ClipList } from "../components/ClipList.tsx";
 import { DiagnosticsSteps } from "../components/DiagnosticsHelp.tsx";
+import { SessionBanners } from "../components/SessionBanners.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { StatusMark } from "../components/StatusMark.tsx";
 import { Alert, buttonClass, Card, Loading, PageHeader } from "../components/ui.tsx";
@@ -64,6 +65,7 @@ export function HomePage() {
   return (
     <>
       <PageHeader title="Home" />
+      <SessionBanners />
       <div className={styles.alerts}>
         {paused && (
           <Alert tone="warning" title="Collection is paused">
@@ -120,6 +122,21 @@ export function HomePage() {
               <JudgingCard status={judging.data} now={now} />
             </div>
           )}
+          <Card>
+            <div className={styles.cardHead}>
+              <h2>Collection sessions</h2>
+              <Link to="/collect">History</Link>
+            </div>
+            <p className={styles.judgingNote}>
+              For a few minutes, have one tablet wake on almost anything and keep every clip, then
+              put its settings back.
+            </p>
+            <p className={styles.sessionLink}>
+              <Link to="/collect/new" className={buttonClass("secondary", "small")}>
+                Start a session
+              </Link>
+            </p>
+          </Card>
           <Card>
             <div className={styles.cardHead}>
               <h2>Devices</h2>

@@ -1,6 +1,6 @@
 # 0008 Read-only device access
 
-- Status: accepted
+- Status: accepted, amended by [0020](0020-collection-sessions.md)
 - Date: 2026-11-17
 
 ## Context
@@ -16,6 +16,10 @@ wake word activations and fetch their clips. It never calls a command that
 changes a device. Recommendations (sensitivity, models) are applied by the
 user by hand. The fake device rejects every other call, so a test catches
 an accidental write.
+
+Amended by [0020](0020-collection-sessions.md): a collection session the
+user starts may change the wake word engine, sensitivity and fine-tune for
+a time limit, and always puts them back and confirms them.
 
 ## Consequences
 

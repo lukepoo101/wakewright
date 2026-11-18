@@ -65,7 +65,8 @@ minute; the `CI OK` check must pass. Questions go to
   Test audio is generated in code.
 - Any code, documentation text, assets or models from Kiosk Satellite or
   vsWakeWord, and any non-commercially licensed model or dataset.
-- Code that writes to a device.
+- Code that writes to a device, beyond the collection session's
+  temporary wake word settings ([ADR 0020](docs/adr/0020-collection-sessions.md)).
 
 Contributions are licensed under [Apache-2.0](LICENSE) (section 5: inbound
 = outbound).

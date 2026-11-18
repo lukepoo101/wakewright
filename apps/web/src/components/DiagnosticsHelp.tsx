@@ -1,7 +1,8 @@
 import { Alert } from "./ui.tsx";
 
 // Kiosk Satellite saves clips only while "wake word diagnostics" is on.
-// Wakewright never changes a device, so the user turns it on by hand.
+// Wakewright changes no device setting but the wake word sensitivity of a
+// collection session (ADR 0020), so the user turns diagnostics on by hand.
 
 export function DiagnosticsSteps() {
   return (

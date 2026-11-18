@@ -17,6 +17,8 @@ export interface ClipSearch {
   to?: string;
   /** What the judges said: an outcome, a disagreement with the device, or dissent. */
   judges?: JudgesFilter;
+  /** "any": from any collection session; otherwise one session's id. */
+  session?: string;
   page?: number;
 }
 
@@ -32,6 +34,7 @@ export function parseClipSearch(raw: Record<string, unknown>): ClipSearch {
     from: date(raw.from),
     to: date(raw.to),
     judges: JUDGES_FILTERS.find((f) => f.value === raw.judges)?.value,
+    session: typeof raw.session === "string" && raw.session ? raw.session : undefined,
     page: Number.isInteger(page) && page > 1 ? page : undefined,
   };
 }
@@ -52,6 +55,7 @@ export function apiFilter(search: ClipSearch) {
     ...(search.from ? { from: day(search.from) } : {}),
     ...(search.to ? { to: day(search.to, 1) } : {}),
     ...(search.judges ? judgesQuery(search.judges) : {}),
+    ...(search.session ? { session: search.session } : {}),
   };
 }
 
