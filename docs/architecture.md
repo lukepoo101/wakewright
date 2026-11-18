@@ -10,6 +10,9 @@ Wakewright has two kinds of process:
   judging, training and evaluation jobs from the parent over HTTPS. They are
   not part of v0.0.1.
 
+The planned design, from the workers' pull protocol to training and
+offline evaluation, is in [design/](design/).
+
 v0.0.1 is the parent only: add Kiosk Satellite devices, collect their wake
 word clips, store them, and browse and play them.
 
