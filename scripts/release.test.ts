@@ -15,7 +15,7 @@ test("a pre-release's notes start at the newest earlier tag of any kind", () => 
 
 test("GitHub's notes become a changelog section", () => {
   const notes =
-    "## What's Changed\n### Fixes\n* Fix a thing by @a in https://x/pull/1\n\n" +
+    "## What's Changed\n<!-- Release notes generated using configuration in .github/release.yml at main -->\n\n### Fixes\n* Fix a thing by @a in https://x/pull/1\n\n" +
     "## New Contributors\n* @a made their first contribution\n\n**Full Changelog**: https://x";
   expect(section("0.0.1", "2026-11-18", notes)).toBe(
     "## 0.0.1 - 2026-11-18\n\n### Fixes\n- Fix a thing by @a in https://x/pull/1\n\n" +

@@ -20,5 +20,7 @@ changelog:
       labels: [documentation]
     - title: Dependencies
       labels: [dependencies]
+    - title: CI and tooling
+      labels: [ci]
     - title: Other changes
       labels: ["*"]
