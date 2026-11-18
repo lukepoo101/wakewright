@@ -44,6 +44,7 @@ export function previousTag(version: string, tags: string[]): string | undefined
 // GitHub's notes, reshaped into a CHANGELOG.md section.
 export function section(version: string, date: string, notes: string): string {
   const body = notes
+    .replace(/^<!--.*-->\s*\n/gm, "")
     .replace(/^## What's Changed\s*\n/m, "")
     .replace(/^## New Contributors/m, "### New contributors")
     .replace(/^\* /gm, "- ")

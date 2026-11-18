@@ -71,6 +71,7 @@ A bad release is fixed by the next patch release, never by moving a tag.
 | `bug`           | Fixes            |
 | `documentation` | Documentation    |
 | `dependencies`  | Dependencies     |
+| `ci`            | CI and tooling   |
 | anything else   | Other changes    |
 
 `release` and `skip-changelog` leave a pull request out. The mapping lives
