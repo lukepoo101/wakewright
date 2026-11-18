@@ -1,6 +1,7 @@
 import { type Clip, kindLabel } from "../clips.ts";
 import { shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
+import { scoreBar, scoreNumbers } from "../score.ts";
 import styles from "./ClipBits.module.css";
 import { Icon } from "./Icon.tsx";
 
@@ -16,7 +17,14 @@ export function KindChip({ kind }: { kind: Clip["kind"] }) {
   );
 }
 
-export function ClippedChip({ samples }: { samples: number }) {
+/** `labelClassName` lets a narrow layout hide the word and keep the icon. */
+export function ClippedChip({
+  samples,
+  labelClassName = "",
+}: {
+  samples: number;
+  labelClassName?: string;
+}) {
   if (samples === 0) return null;
   return (
     <span
@@ -24,28 +32,36 @@ export function ClippedChip({ samples }: { samples: number }) {
       title={`${samples.toLocaleString("en-GB")} samples at full scale`}
     >
       <Icon name="warning" size={14} />
-      Clipped
+      <span className={labelClassName}>Clipped</span>
     </span>
   );
 }
 
-/** The score against the threshold: a bar with a marker, and the numbers. */
+/**
+ * The score against the threshold: a bar with a marker, and the numbers.
+ * Scales differ by engine; see score.ts.
+ */
 export function ScoreBar({ score, threshold }: { score: number | null; threshold: number | null }) {
   if (score === null) return <span className={styles.muted}>no score</span>;
-  const pct = (x: number) => `${Math.max(0, Math.min(1, x)) * 100}%`;
+  const bar = scoreBar(score, threshold);
   const over = threshold !== null && score >= threshold;
+  const numbers = scoreNumbers(score, threshold);
   return (
     <span className={styles.score}>
-      <span className={styles.track} aria-hidden="true">
-        <span
-          className={`${styles.fill} ${over ? styles.over : ""}`}
-          style={{ width: pct(score) }}
-        />
-        {threshold !== null && <span className={styles.marker} style={{ left: pct(threshold) }} />}
-      </span>
+      {bar && (
+        <span className={styles.track} aria-hidden="true">
+          <span
+            className={`${styles.fill} ${over ? styles.over : ""}`}
+            style={{ width: `${bar.fill * 100}%` }}
+          />
+          {bar.marker !== null && (
+            <span className={styles.marker} style={{ left: `${bar.marker * 100}%` }} />
+          )}
+        </span>
+      )}
       <span className={styles.numbers}>
-        {score.toFixed(2)}
-        {threshold !== null && <span className={styles.muted}> / {threshold.toFixed(2)}</span>}
+        {numbers.score}
+        {numbers.threshold !== null && <span className={styles.muted}> / {numbers.threshold}</span>}
       </span>
     </span>
   );

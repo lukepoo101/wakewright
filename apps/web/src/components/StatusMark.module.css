@@ -1,0 +1,36 @@
+/* A fixed 1rem box, so a dot, a square and the icon line up in a list. */
+.mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+
+.ok {
+  background: var(--color-ok);
+}
+
+.failing {
+  background: var(--color-error);
+}
+
+.waiting {
+  background: var(--color-border-strong);
+}
+
+.paused {
+  background: var(--color-warn);
+  border-radius: 2px;
+}
+
+.icon {
+  color: var(--color-warn);
+}

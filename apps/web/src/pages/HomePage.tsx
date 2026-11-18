@@ -3,9 +3,10 @@ import { errorMessage } from "../api.ts";
 import { ClipList } from "../components/ClipList.tsx";
 import { DiagnosticsSteps } from "../components/DiagnosticsHelp.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { StatusMark } from "../components/StatusMark.tsx";
 import { Alert, buttonClass, Card, Loading, PageHeader } from "../components/ui.tsx";
 import { useClipSummary, useClips } from "../clips.ts";
-import { adviceFor, type Device, useCollection, useDevices } from "../devices.ts";
+import { adviceFor, type Device, deviceState, useCollection, useDevices } from "../devices.ts";
 import { ago, plural, useNow } from "../format.ts";
 import styles from "./HomePage.module.css";
 
@@ -43,6 +44,10 @@ export function HomePage() {
   const failing = list.filter((d) => d.status.health === "failing");
   const diagnosticsOff = list.filter((d) => d.reported?.diagnosticsEnabled === false);
   const paused = collection.data?.paused ?? false;
+  // Working: reachable and saving clips (diagnostics on, or not read yet).
+  const working = list.filter(
+    (d) => d.status.health !== "failing" && d.reported?.diagnosticsEnabled !== false,
+  ).length;
 
   if (totals.total === 0) {
     return (
@@ -88,8 +93,8 @@ export function HomePage() {
         <Tile
           label="Devices"
           value={
-            failing.length > 0
-              ? `${list.length - failing.length} of ${list.length} working`
+            working < list.length
+              ? `${working} of ${list.length} working`
               : `${list.length} working`
           }
         >
@@ -114,10 +119,7 @@ export function HomePage() {
           <ul className={styles.devices}>
             {list.map((d) => (
               <li key={d.id}>
-                <span
-                  className={`${styles.dot} ${styles[paused ? "paused" : d.status.health]}`}
-                  aria-hidden="true"
-                />
+                <StatusMark state={deviceState(d, paused)} className={styles.mark} />
                 <span className={styles.deviceName}>{d.name}</span>
                 <span className={styles.deviceState}>{deviceLine(d, now, paused)}</span>
               </li>
@@ -130,10 +132,18 @@ export function HomePage() {
 }
 
 function deviceLine(d: Device, now: number, paused: boolean): string {
-  if (paused) return `paused · ${plural(d.clips, "clip")}`;
-  if (d.status.health === "failing") return adviceFor(d.status.error?.code ?? "").title;
-  if (d.status.health === "waiting") return "waiting for the first check";
-  return `${plural(d.clips, "clip")} · checked ${ago(d.status.lastSuccessAt, now)}`;
+  switch (deviceState(d, paused)) {
+    case "paused":
+      return `paused · ${plural(d.clips, "clip")}`;
+    case "failing":
+      return adviceFor(d.status.error?.code ?? "").title;
+    case "waiting":
+      return "waiting for the first check";
+    case "diagnosticsOff":
+      return "diagnostics off: saving no clips";
+    case "ok":
+      return `${plural(d.clips, "clip")} · checked ${ago(d.status.lastSuccessAt, now)}`;
+  }
 }
 
 function Tile({

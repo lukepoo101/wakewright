@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { scoreNumbers } from "../../apps/web/src/score.ts";
 
 // The user's path through a fresh instance, in order: first-run setup,
 // sign out and in, add the fake device, see its clips arrive, play one.
@@ -75,7 +76,8 @@ test("a new clip appears and plays with its waveform", async ({ page, request })
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "What the device reported" })).toBeVisible();
-  await expect(page.getByText(`${heard.score.toFixed(2)}`, { exact: false }).first()).toBeVisible();
+  const numbers = scoreNumbers(heard.score, heard.threshold);
+  await expect(page.getByText(numbers.score, { exact: false }).first()).toBeVisible();
 
   const waveform = page.getByRole("img", { name: /^Waveform, 3\.00 s$/ });
   await expect(waveform).toBeVisible();
