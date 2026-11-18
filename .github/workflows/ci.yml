@@ -252,10 +252,12 @@ jobs:
       - name: Run the parent and the worker together
         run: mise run integration
 
+  # The slowest job runs on every change rather than wait for `Changes`:
+  # on a pull request that touches the parent, waiting added about 13 s to
+  # the whole run; on a worker-only one it finishes alongside the worker's
+  # jobs.
   image:
     name: Image / build + E2E (${{ matrix.arch }})
-    needs: changes
-    if: needs.changes.outputs.bun == 'true'
     strategy:
       fail-fast: false
       matrix:
