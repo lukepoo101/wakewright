@@ -13,7 +13,7 @@ import {
   PageHeader,
   TextField,
 } from "../components/ui.tsx";
-import { adviceFor, type Device, devicesKey, useDevices } from "../devices.ts";
+import { adviceFor, detailFor, type Device, devicesKey, useDevices } from "../devices.ts";
 import { plural } from "../format.ts";
 import styles from "./DeviceFormPage.module.css";
 
@@ -170,7 +170,7 @@ function DeviceForm({ device }: { device?: Device }) {
             {result && <TestOutcome result={result} />}
             {saveError && (
               <Alert tone="error" title={adviceFor(saveError.code).title}>
-                <p>{saveError.message}</p>
+                {detailFor(saveError.code, saveError.message) && <p>{saveError.message}</p>}
                 <p>{adviceFor(saveError.code).fix}</p>
                 {offline && (
                   <div>
@@ -217,7 +217,7 @@ function TestOutcome({ result }: { result: TestResult }) {
     const advice = adviceFor(result.error.code);
     return (
       <Alert tone="error" title={advice.title}>
-        <p>{result.error.message}</p>
+        {detailFor(result.error.code, result.error.message) && <p>{result.error.message}</p>}
         <p>{advice.fix}</p>
       </Alert>
     );
