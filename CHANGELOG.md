@@ -7,6 +7,15 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.0.2 - 2026-11-18
+
+### Fixes
+
+- Show device settings only for clips recorded near a settings read, list each wake word once and flag clipping only for runs by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/21
+- Show each clip's engine, read every score bar against its own threshold and show device names in full by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/22
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.1...v0.0.2
+
 ## 0.0.1 - 2026-11-18
 
 ### New features
