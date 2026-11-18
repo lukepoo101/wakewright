@@ -19,7 +19,7 @@ name: wakewright
 services:
   wakewright:
     # A release; `edge` is built from every merge to main, for testing.
-    image: ghcr.io/lukepoo101/wakewright:0.0.3
+    image: ghcr.io/lukepoo101/wakewright:0.1.0
     restart: unless-stopped
     ports: ["8080:8080"]
     read_only: true
@@ -37,7 +37,7 @@ services:
     secrets: [wakewright_key, wakewright_admin, wakewright_worker_token]
   worker:
     # Always the same release as the parent.
-    image: ghcr.io/lukepoo101/wakewright-worker:edge
+    image: ghcr.io/lukepoo101/wakewright-worker:0.1.0
     restart: unless-stopped
     depends_on: [wakewright]
     read_only: true

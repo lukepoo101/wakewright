@@ -29,7 +29,7 @@ docker volume create wakewright-data
 docker run -d --name wakewright --restart unless-stopped \
   -p 8080:8080 -v wakewright-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-  ghcr.io/lukepoo101/wakewright:0.0.1
+  ghcr.io/lukepoo101/wakewright:0.1.0
 ```
 
 Open `http://<host>:8080`. The first browser to open a new instance is
