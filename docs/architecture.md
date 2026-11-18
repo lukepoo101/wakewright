@@ -54,6 +54,13 @@ word clips, store them, and browse and play them.
   encrypted with AES-256-GCM under a key kept outside the database
   ([ADR 0011](adr/0011-collecting-clips.md),
   [ADR 0012](adr/0012-device-password-encryption.md)).
+- **Clips**: `/api/v1/clips` lists clips newest first with filters (device,
+  kind, time) and paging; one clip comes with its newer and older neighbours
+  under the same filter, and its audio is served with `Range`, `ETag` and a
+  private cache policy so the browser can seek. The SPA draws the waveform
+  with wavesurfer.js from the WAV itself; lists play through one shared
+  `<audio>` element. Home shows the first-run steps until the first clip
+  arrives, then collection health and the latest clips.
 - **Backups**: `Bun.cron` runs `VACUUM INTO /data/backups/wakewright-YYYYMMDD.sqlite3`
   at 03:30 every night and keeps 14. Audio blobs are immutable, so
   file-level backup tools copy them incrementally.
@@ -86,22 +93,18 @@ apps/parent/          @wakewright/parent: the server
 apps/web/             @wakewright/web: the SPA
   index.html  src/{main.tsx,router.tsx,api.ts,tokens.css}
   src/pages/          one component per screen, routed in router.tsx (AuthPages: setup, sign-in)
-  src/components/     shared components
+  src/player.tsx      the shared <audio> element for list playback
+  src/components/     shared components (AudioPlayer: wavesurfer.js waveform)
 devtools/
   dev.ts              `mise run dev`: parent + two fake devices
   fake-kiosk/         @wakewright/fake-kiosk: fake device + synthetic clips
 deploy/docker/        parent.Dockerfile
 scripts/              repository checks run by `mise run check`
-tests/e2e/            Playwright smoke tests
+tests/e2e/            Playwright: smoke tests and the first-run path against a fake device
 docs/                 this documentation and the ADRs
 ```
 
-## Where the v0.0.1 features go
-
-| Feature                               | Location                                                         |
-| ------------------------------------- | ---------------------------------------------------------------- |
-| Clip API                              | `apps/parent/src/api/clips.ts`, mounted in `api/index.ts`        |
-| Clips and clip pages; waveform player | `apps/web/src/pages/`, `apps/web/src/components/AudioPlayer.tsx` |
+## The fake device
 
 The fake device in `devtools/fake-kiosk` builds its responses from the same
 `kiosk/shapes.ts`, so the client and the fake cannot drift apart silently.

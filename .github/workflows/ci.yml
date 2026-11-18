@@ -136,6 +136,7 @@ jobs:
         run: |
           docker run -d --name wakewright --read-only --tmpfs /tmp \
             --cap-drop ALL --security-opt no-new-privileges \
+            --add-host=host.docker.internal:host-gateway \
             -p 8080:8080 "$IMAGE"
           for _ in $(seq 30); do
             status=$(docker inspect -f '{{.State.Health.Status}}' wakewright)
@@ -168,6 +169,8 @@ jobs:
       - name: Run the E2E smoke test against the image
         env:
           E2E_BASE_URL: http://localhost:8080
+          # The fake device Playwright starts on the runner, as the container sees it.
+          E2E_FAKE_KIOSK_URL: http://host.docker.internal:23250
         run: mise run e2e
 
       - name: Show the container log

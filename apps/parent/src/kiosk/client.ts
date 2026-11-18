@@ -140,10 +140,10 @@ export class KioskClient {
           `The device did not answer within ${this.timeoutMs / 1000} s.`,
         );
       }
-      throw new SourceError(
-        "unreachable",
-        `Cannot connect to ${this.baseUrl}: ${(error as Error).message}`,
-      );
+      // Bun's messages are long; the system error code says enough.
+      const code = (error as { code?: unknown }).code;
+      const reason = typeof code === "string" ? code : (error as Error).message;
+      throw new SourceError("unreachable", `Cannot connect to ${this.baseUrl} (${reason}).`);
     }
   }
 

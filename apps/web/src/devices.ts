@@ -14,7 +14,9 @@ export function useDevices() {
   return useQuery({
     queryKey: devicesKey,
     queryFn: () => call(v1.devices.$get()),
-    refetchInterval: 10_000,
+    // Faster while a new device waits for its first check.
+    refetchInterval: (query) =>
+      query.state.data?.devices.some((d) => d.status.health === "waiting") ? 1000 : 10_000,
   });
 }
 

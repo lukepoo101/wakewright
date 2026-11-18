@@ -1,0 +1,92 @@
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.stepper {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.playerCard {
+  margin-bottom: var(--space-4);
+}
+
+.under {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.keys {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.sectionTitle {
+  margin-bottom: var(--space-4);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-3) var(--space-6);
+  margin: 0;
+}
+
+.details dt {
+  color: var(--color-text-muted);
+}
+
+.details dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.phonemes {
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 599px) {
+  .details {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .details dt {
+    margin-top: var(--space-3);
+    font-size: var(--text-small);
+  }
+
+  .keys {
+    display: none;
+  }
+}

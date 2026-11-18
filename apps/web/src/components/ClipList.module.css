@@ -1,0 +1,116 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Wide: one line per clip, aligned in columns. */
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.5rem 9rem minmax(6rem, 12rem) 7.5rem 9.5rem minmax(6rem, 1fr);
+  grid-template-areas: "play time device kind score flags";
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.row:hover {
+  background: var(--color-surface-2);
+}
+
+.current {
+  background: var(--color-accent-soft);
+}
+
+.row > button {
+  grid-area: play;
+  position: relative;
+  z-index: 1;
+}
+
+.open {
+  grid-area: time;
+  color: var(--color-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* The link covers the whole row, so a click anywhere opens the clip; the
+   play button sits above it. */
+.open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.open:focus-visible {
+  outline: none;
+}
+
+.open:focus-visible::after {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-small);
+}
+
+.open:hover {
+  text-decoration: underline;
+}
+
+.device {
+  grid-area: device;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removed {
+  color: var(--color-text-muted);
+}
+
+.kind {
+  grid-area: kind;
+}
+
+.score {
+  grid-area: score;
+}
+
+.flags {
+  grid-area: flags;
+}
+
+/* Narrow: two lines per clip. */
+@media (max-width: 759px) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "play time kind"
+      "play device score";
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) var(--space-2);
+  }
+
+  .device {
+    color: var(--color-text-muted);
+    font-size: var(--text-small);
+  }
+
+  .flags {
+    display: none;
+  }
+
+  .kind,
+  .score {
+    justify-self: end;
+  }
+}
