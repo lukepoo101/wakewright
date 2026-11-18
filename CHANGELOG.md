@@ -7,46 +7,13 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.2.0-rc.1 - 2026-11-18
-
-Each worker now has its own token. A new **Workers** page lists every
-worker, whether it is connected, the judges it offers and may run, and what
-it reports about itself. Create a worker there and Wakewright shows its
-token once, with a pairing string (the parent's address and the token in
-one value) and the command to start a worker with it; rename, pause, limit
-its judges, give it a new token or delete it, with immediate effect. For
-GitOps, declare workers in configuration with
-`WAKEWRIGHT__WORKERS__<NAME>__TOKEN(_FILE)`, `__JUDGES`, `__NOTES` and
-`__ENABLED`; they show as "Set by configuration" and are read-only in the
-UI. The worker accepts the pairing string as `WAKEWRIGHT_WORKER__PAIRING`,
-`WAKEWRIGHT_WORKER__PAIRING_FILE` or `run --pairing`. The worker protocol is
-still version 1.
-
-### Upgrading from 0.1
-
-The shared `WAKEWRIGHT__WORKER__TOKEN` and `WAKEWRIGHT__WORKER__TOKEN_FILE`
-are removed, and the parent refuses to start while either is set. Rename
-the variable to declare a worker with the same token, and running workers
-(0.1 or 0.2) carry on without a change:
-
-```sh
-# before
-WAKEWRIGHT__WORKER__TOKEN_FILE=/run/secrets/worker_token
-# after: a worker named "my-worker", same token
-WAKEWRIGHT__WORKERS__MY_WORKER__TOKEN_FILE=/run/secrets/worker_token
-```
-
-Declared tokens are accepted as given (16 characters or more). The
-database migrates on start: the list of workers seen so far is replaced by
-the new worker records, and every verdict keeps the name of the worker that
-gave it. Upgrade the parent and the worker together, as always. See
-[docs/configuration.md](https://github.com/lukepoo101/wakewright/blob/main/docs/configuration.md#workers).
+## 0.2.0 - 2026-11-18
 
 ### Breaking changes
 
 - Give each worker its own token, managed on a new Workers page or declared in configuration by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/39
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.1.0...v0.2.0-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.1.0...v0.2.0
 
 ## 0.1.0 - 2026-11-18
 
