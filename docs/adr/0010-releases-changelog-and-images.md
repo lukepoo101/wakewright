@@ -86,7 +86,8 @@ ran; this one has to run on every merge.
   them as files.
 - **No separate cosign signature.** The attestation already is a Sigstore
   signature over the image digest by this workflow's identity, and
-  `gh attestation verify` checks it. A second signature of the same digest
+  `gh attestation verify` checks it, as does `cosign verify-attestation
+--new-bundle-format` (checked with cosign 3.1.4 against `0.0.1-rc.1`). A second signature of the same digest
   by the same identity would add a step and a tool and prove nothing new.
 
 ## Consequences

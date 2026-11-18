@@ -17,8 +17,9 @@ changes its settings or installs anything on it.
 
 > **Status: pre-alpha.** v0.0.1 collects Kiosk Satellite clips, stores
 > them, and lets you browse and play them in a web UI. There is no stable
-> release yet; `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64) is
-> built from every merge to `main`, for testing.
+> release yet. [Pre-releases](https://github.com/lukepoo101/wakewright/releases)
+> and `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64, built from
+> every merge to `main`) are for testing.
 
 ## Using it
 

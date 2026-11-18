@@ -300,10 +300,14 @@ jobs:
           \`\`\`
           EOF
           mkdir -p "$RUNNER_TEMP/assets"
+          # Two SBOMs per platform: the runtime image (Debian packages and
+          # Bun) and the build stage (the npm packages bundled into main.js).
           for arch in amd64 arm64; do
+            base="$RUNNER_TEMP/assets/wakewright-$VERSION-linux-$arch"
             docker buildx imagetools inspect "$IMAGE@$DIGEST" \
-              --format "{{ json (index .SBOM \"linux/$arch\").SPDX }}" \
-              > "$RUNNER_TEMP/assets/wakewright-$VERSION-linux-$arch.spdx.json"
+              --format "{{ json (index .SBOM \"linux/$arch\") }}" > "$RUNNER_TEMP/sbom.json"
+            jq -e '.SPDX' "$RUNNER_TEMP/sbom.json" > "$base.spdx.json"
+            jq -e '.AdditionalSPDXs[0]' "$RUNNER_TEMP/sbom.json" > "$base-build.spdx.json"
           done
           ls -l "$RUNNER_TEMP/assets"
 
