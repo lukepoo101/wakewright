@@ -119,6 +119,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      # The worker image installs Debian's security updates in a layer keyed
+      # on the day, so the layer cache never keeps it older than that.
+      - name: Today
+        id: today
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       # Pushed by digest only; the merge job tags the multi-arch index.
       # Reads the layer cache CI on main just wrote for this architecture.
       # The SBOM (BuildKit, SPDX) covers the runtime image and the build
@@ -135,6 +141,7 @@ jobs:
           sbom: true
           provenance: mode=max
           cache-from: type=gha,scope=${{ matrix.scope }}-${{ matrix.arch }}
+          build-args: DEBIAN_UPDATES=${{ steps.today.outputs.day }}
 
       - name: Record the digest
         env:

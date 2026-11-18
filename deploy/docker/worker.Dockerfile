@@ -39,6 +39,14 @@ LABEL org.opencontainers.image.title="wakewright-worker" \
       org.opencontainers.image.description="Wakewright worker: judges wake word clips for the Wakewright parent" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/lukepoo101/wakewright"
+# Debian security updates the base image has not picked up yet (the
+# release scan fails on any fixable high or critical vulnerability).
+# Publishing passes the day, so a cached layer is at most a day old.
+ARG DEBIAN_UPDATES=none
+RUN echo "Debian updates as of ${DEBIAN_UPDATES}" \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 COPY LICENSE NOTICE /usr/share/licenses/wakewright/
 COPY --from=build /app/.venv /app/.venv
 COPY --from=build --chown=10001:10001 /out-cache /cache
