@@ -53,7 +53,7 @@ docker run -d --name wakewright-worker --restart unless-stopped \
   -v wakewright-worker-cache:/cache \
   -e WAKEWRIGHT_WORKER__PAIRING='the pairing string from the Workers page' \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-  ghcr.io/lukepoo101/wakewright-worker:0.3.1
+  ghcr.io/lukepoo101/wakewright-worker:0.4.0
 ```
 
 [`deploy/compose/docker-compose.yml`](../deploy/compose/docker-compose.yml)
@@ -123,7 +123,7 @@ service (the Workers page can also limit the types a worker may run).
 | `wakewright-worker healthcheck`                | exit 0 if a worker's loop on this machine ran in the last 5 minutes                         |
 
 With Docker, put the command after the image name, for example
-`docker run --rm -v wakewright-worker-cache:/cache ghcr.io/lukepoo101/wakewright-worker:0.3.1 self-test`.
+`docker run --rm -v wakewright-worker-cache:/cache ghcr.io/lukepoo101/wakewright-worker:0.4.0 self-test`.
 
 ## When something is wrong
 
