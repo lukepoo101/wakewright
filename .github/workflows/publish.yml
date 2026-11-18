@@ -224,7 +224,15 @@ jobs:
             --annotation "index:org.opencontainers.image.version=$VERSION" \
             --annotation "index:org.opencontainers.image.revision=$SHA" \
             $(printf "$IMAGE@sha256:%s " *)
-          digest=$(docker buildx imagetools inspect "$IMAGE:$short" --format '{{json .Manifest}}' | jq -r .digest)
+          # GHCR can answer "not found" for a moment after the push.
+          for attempt in 1 2 3 4 5 6; do
+            if digest=$(docker buildx imagetools inspect "$IMAGE:$short" --format '{{json .Manifest}}' | jq -re .digest); then
+              break
+            fi
+            [ "$attempt" = 6 ] && exit 1
+            echo "The registry does not list $IMAGE:$short yet; retrying in 5 s."
+            sleep 5
+          done
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           docker buildx imagetools inspect "$IMAGE@$digest"
           echo "Image: \`$IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"
