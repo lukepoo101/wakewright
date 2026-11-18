@@ -5,7 +5,16 @@ import { WORKER_OPENAPI_PATH } from "../../../scripts/worker-openapi.ts";
 import { LEASE_MS } from "../src/judging.ts";
 import { testApi } from "./helpers.ts";
 
-const TOKEN = "test-worker-token-0123456789";
+/** Each test worker's token, declared as if by configuration. */
+const tokenOf = (name: string) => `test-token-for-${name}-0123456789`;
+const TOKEN = tokenOf("w1");
+const DECLARED = ["w1", "w2", "w3"].map((name) => ({
+  name,
+  token: tokenOf(name),
+  notes: "",
+  enabled: true,
+  judges: null,
+}));
 const START = Date.parse("2026-11-18T12:00:00Z");
 
 const OWW = { name: "openwakeword", version: "alexa_v0.1+1", wakeWords: ["alexa"] };
@@ -15,10 +24,11 @@ const ALL = [OWW, MWW, STT];
 
 type Job = { id: string; clipId: string; wakeWord: string; judges: string[] };
 
-// A parent with a worker token and two fake devices collected: the kitchen
+// A parent with three declared workers (w1, w2, w3) and two fake devices
+// collected: the kitchen
 // (vsWakeWord, "alexa") and the lounge (microWakeWord, "okay_nabu"), four
 // clips each. `clock` moves the parent's time.
-async function judged(options: { token?: string | null; realTime?: boolean } = {}) {
+async function judged(options: { declared?: typeof DECLARED; realTime?: boolean } = {}) {
   const clock = { now: START };
   const kitchen = createFakeKiosk({ name: "kitchen", initialClips: 4, now: () => START });
   const lounge = createFakeKiosk({
@@ -35,7 +45,7 @@ async function judged(options: { token?: string | null; realTime?: boolean } = {
   const t = await testApi({
     fetch,
     now: options.realTime ? undefined : () => clock.now,
-    workerToken: options.token === null ? undefined : (options.token ?? TOKEN),
+    declared: options.declared ?? DECLARED,
   });
   await t.setUp();
   for (const name of ["kitchen", "lounge"]) {
@@ -65,9 +75,10 @@ async function judged(options: { token?: string | null; realTime?: boolean } = {
     extra: { max?: number; waitSeconds?: number; name?: string } = {},
   ): Promise<Job[]> {
     const res = await worker("/jobs/claim", {
+      token: tokenOf(extra.name ?? "w1"),
       json: {
         protocol: 1,
-        worker: { name: extra.name ?? "w1", version: "0.0.3" },
+        worker: { name: `host-of-${extra.name ?? "w1"}`, version: "0.0.3" },
         judges,
         max: extra.max ?? 8,
         waitSeconds: extra.waitSeconds ?? 0,
@@ -91,8 +102,15 @@ async function judged(options: { token?: string | null; realTime?: boolean } = {
     };
   }
 
-  async function answer(job: Job, results: object[]) {
-    return worker(`/jobs/${job.id}/results`, { json: { results } });
+  async function answer(job: Job, results: object[], name = "w1") {
+    return worker(`/jobs/${job.id}/results`, { json: { results }, token: tokenOf(name) });
+  }
+
+  /** A worker's identity, as the worker API's token check gives it. */
+  function identity(name: string) {
+    const id = t.workers.authenticate(tokenOf(name));
+    if (!id) throw new Error(`no worker ${name}`);
+    return id;
   }
 
   async function clips(query = "") {
@@ -102,17 +120,17 @@ async function judged(options: { token?: string | null; realTime?: boolean } = {
     };
   }
 
-  return { ...t, clock, kitchen, worker, claim, result, answer, clips };
+  return { ...t, clock, kitchen, worker, claim, result, answer, clips, identity };
 }
 
 describe("worker API: access", () => {
-  test("answers 404 while no worker token is configured", async () => {
-    const t = await judged({ token: null });
+  test("with no workers, every token is refused", async () => {
+    const t = await judged({ declared: [] });
     const res = await t.worker("/jobs/claim", { json: { protocol: 1 } });
-    expect(res.status).toBe(404);
-    expect(await res.json()).toMatchObject({ error: "not_found" });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ error: "unauthenticated" });
     const status = await (await t.request("/api/v1/judging")).json();
-    expect(status).toMatchObject({ configured: false, workers: [] });
+    expect(status).toMatchObject({ workers: [] });
   });
 
   test("needs the token, and a user session is not enough", async () => {
@@ -130,7 +148,7 @@ describe("worker API: access", () => {
   });
 
   test("still needs the token with sign-in turned off", async () => {
-    const t = await testApi({ mode: "none", workerToken: TOKEN });
+    const t = await testApi({ mode: "none", declared: DECLARED });
     const res = await t.api.request("http://localhost/api/worker/v1/jobs/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -279,22 +297,17 @@ describe("worker API: long poll", () => {
     const judging = new Judging({
       db: t.db,
       log: (await import("./helpers.ts")).quietLog,
-      configured: true,
       leaseMs: 200,
     });
     const request = {
-      worker: { name: "w1", version: "1" },
+      worker: { name: "host", version: "1" },
       judges: [STT],
       max: 32,
       waitSeconds: 0,
     };
-    expect(await judging.claim(request)).toHaveLength(8);
+    expect(await judging.claim(t.identity("w1"), request)).toHaveLength(8);
     const started = performance.now();
-    const jobs = await judging.claim({
-      ...request,
-      worker: { name: "w2", version: "1" },
-      waitSeconds: 5,
-    });
+    const jobs = await judging.claim(t.identity("w2"), { ...request, waitSeconds: 5 });
     expect(jobs).toHaveLength(8);
     expect(performance.now() - started).toBeLessThan(1500);
   });
@@ -304,14 +317,15 @@ describe("worker API: long poll", () => {
     await t.claim([STT], { max: 32 });
     const controller = new AbortController();
     const request = {
-      worker: { name: "w2", version: "1" },
+      worker: { name: "host", version: "1" },
       judges: [STT],
       max: 8,
       waitSeconds: 30,
     };
+    const w2 = t.identity("w2");
     const started = performance.now();
-    const gone = t.judging.claim(request, controller.signal);
-    const stopped = t.judging.claim(request);
+    const gone = t.judging.claim(w2, request, controller.signal);
+    const stopped = t.judging.claim(w2, request);
     await Bun.sleep(20);
     expect(t.judging.status().workers.find((w) => w.name === "w2")?.connected).toBe(true);
     controller.abort();
@@ -320,7 +334,7 @@ describe("worker API: long poll", () => {
     expect(await stopped).toEqual([]);
     expect(performance.now() - started).toBeLessThan(500);
     // After stopping, claims answer at once.
-    expect(await t.judging.claim(request)).toEqual([]);
+    expect(await t.judging.claim(w2, request)).toEqual([]);
   });
 });
 
@@ -390,14 +404,19 @@ describe("agreement", () => {
 
     const status = await (await t.request("/api/v1/judging")).json();
     expect(status).toMatchObject({
-      configured: true,
       judged: 4,
       disagree: 2,
       falseWake: falseWake.length,
       missedWake: missed.length,
       waiting: 4,
     });
-    expect(status.workers).toEqual([expect.objectContaining({ name: "w1", connected: true })]);
+    expect(
+      status.workers.map((w: { name: string; connected: boolean }) => [w.name, w.connected]),
+    ).toEqual([
+      ["w1", true],
+      ["w2", false],
+      ["w3", false],
+    ]);
   });
 
   test("a newer version's result replaces the older one in the vote", async () => {
@@ -436,16 +455,19 @@ describe("agreement", () => {
 
   test("Home counts clips waiting for the judges recent workers offer", async () => {
     const t = await judged();
-    // No worker yet: every unjudged clip waits.
-    expect(await (await t.request("/api/v1/judging")).json()).toMatchObject({
-      waiting: 8,
-      workers: [],
-    });
+    // No worker has connected yet: every unjudged clip waits.
+    const before = await (await t.request("/api/v1/judging")).json();
+    expect(before.waiting).toBe(8);
+    expect(before.workers.some((w: { connected: boolean }) => w.connected)).toBe(false);
     await t.claim([OWW], { max: 1 });
     // openWakeWord covers only the kitchen's four "alexa" clips.
     expect((await (await t.request("/api/v1/judging")).json()).waiting).toBe(4);
     t.clock.now += 3 * 60_000;
-    expect((await (await t.request("/api/v1/judging")).json()).workers[0].connected).toBe(false);
+    expect((await (await t.request("/api/v1/judging")).json()).workers[0]).toMatchObject({
+      name: "w1",
+      connected: false,
+      reported: { name: "host-of-w1", version: "0.0.3", judges: [OWW] },
+    });
   });
 });
 

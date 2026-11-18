@@ -1,6 +1,7 @@
 # 0016 Judging: a derived queue with leases, a shared token, unweighted agreement
 
-- Status: accepted
+- Status: accepted; the shared token is superseded by
+  [ADR 0018](0018-workers-with-their-own-tokens.md) (a token per worker)
 - Date: 2026-11-18
 
 ## Context

@@ -14,7 +14,7 @@
       "workerToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "The shared worker token, set on the parent as WAKEWRIGHT__WORKER__TOKEN."
+        "description": "The worker's own token, shown once when the worker is created in the parent's Workers tab, or set in the parent's configuration for a declared worker."
       }
     },
     "schemas": {
@@ -102,17 +102,17 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "example": "judge-1"
+                "example": "judge-laptop"
               },
               "version": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "example": "0.0.3"
+                "example": "0.2.0"
               }
             },
             "required": ["name", "version"],
-            "description": "Shown in the UI; one name per running worker."
+            "description": "What the worker says about itself, shown in the UI beside the worker's own name: usually its host name and its version. The token, not this name, identifies the worker."
           },
           "judges": {
             "type": "array",
@@ -239,7 +239,7 @@
       "post": {
         "tags": ["worker"],
         "summary": "Lease clips to judge, waiting for one when there are none (long poll)",
-        "description": "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
+        "description": "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Only judges the worker is allowed to run are asked for, and a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
         "security": [
           {
             "workerToken": []
@@ -286,17 +286,7 @@
             }
           },
           "401": {
-            "description": "No token, or the wrong token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Judging is not set up: the parent has no worker token",
+            "description": "No token, or a token that is not a worker's: wrong, replaced, or its worker was deleted",
             "content": {
               "application/json": {
                 "schema": {
@@ -350,7 +340,7 @@
             }
           },
           "401": {
-            "description": "No token, or the wrong token",
+            "description": "No token, or a token that is not a worker's: wrong, replaced, or its worker was deleted",
             "content": {
               "application/json": {
                 "schema": {
@@ -360,7 +350,7 @@
             }
           },
           "404": {
-            "description": "No such clip, or judging is not set up",
+            "description": "No such clip",
             "content": {
               "application/json": {
                 "schema": {
@@ -417,17 +407,7 @@
             }
           },
           "401": {
-            "description": "No token, or the wrong token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Judging is not set up: the parent has no worker token",
+            "description": "No token, or a token that is not a worker's: wrong, replaced, or its worker was deleted",
             "content": {
               "application/json": {
                 "schema": {
@@ -437,7 +417,7 @@
             }
           },
           "409": {
-            "description": "The lease has expired or belongs to another claim: claim again",
+            "description": "The lease has expired, was released (the worker was paused or changed) or belongs to another worker: claim again",
             "content": {
               "application/json": {
                 "schema": {

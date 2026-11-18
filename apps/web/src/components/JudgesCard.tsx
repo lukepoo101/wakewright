@@ -166,13 +166,13 @@ function summary(clip: Clip): string {
 }
 
 function emptyText(status: JudgingStatus | undefined, judges: Judges): string {
-  if (status && !status.configured) {
-    return "Judging is not set up. Set WAKEWRIGHT__WORKER__TOKEN on the Wakewright server and run a worker with the same token, and every clip is judged automatically.";
-  }
   if (status && status.workers.length === 0) {
-    return "No worker has connected yet. Start a Wakewright worker with this server's worker token to have this clip judged.";
+    return "No workers yet. Add one under Workers and start it, and every clip is judged automatically.";
   }
-  if (status && !status.workers.some((w) => w.connected)) {
+  if (status && !status.workers.some((w) => w.reported.lastSeenAt)) {
+    return "No worker has connected yet. Start one with its token, from Workers, to have this clip judged.";
+  }
+  if (status && !status.workers.some((w) => w.connected && w.enabled)) {
     return "No worker is connected at the moment. This clip is judged when one connects.";
   }
   if (judges.pending.length > 0 && judges.pending.every((p) => p.reason === "no_model")) {

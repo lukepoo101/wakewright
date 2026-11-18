@@ -41,8 +41,8 @@ encrypts device passwords is generated into the volume on first start.
 [`deploy/compose/docker-compose.yml`](../deploy/compose/docker-compose.yml)
 sets the admin password and the secret key from files instead, so nothing
 is decided by whoever opens the page first, and runs the
-[worker](worker.md) beside the parent to judge clips, with a shared
-worker token:
+[worker](worker.md) beside the parent to judge clips, declared in the
+parent's configuration with a token from a file:
 
 ```sh
 mkdir wakewright && cd wakewright
@@ -50,7 +50,7 @@ curl -fsSLO https://raw.githubusercontent.com/lukepoo101/wakewright/main/deploy/
 mkdir -p secrets
 openssl rand -base64 32 > secrets/key
 printf '%s' 'a long admin password' > secrets/admin_password
-openssl rand -base64 32 > secrets/worker_token
+openssl rand -base64 32 > secrets/worker_token   # the declared worker's token
 chmod 644 secrets/*   # the containers run as uid 10001 and must read them
 docker compose up -d
 ```
@@ -59,8 +59,9 @@ Sign in as `admin` with that password. Edit `WAKEWRIGHT__SERVER__PUBLIC_URL`
 to the address you use. Keep `secrets/key` with your backups: without it,
 stored device passwords cannot be read (clips are unaffected). The worker
 downloads its models (about 2.5 GB) into its `worker-cache` volume on first
-start; delete the `worker` service to collect clips without judging them,
-or run the worker on another machine ([worker.md](worker.md)).
+start; delete the `worker` service to collect clips without judging them.
+To run a worker on another machine, add it on the Workers page, which gives
+it its own token and a pairing string ([worker.md](worker.md)).
 
 ## Kubernetes and GitOps
 
@@ -70,7 +71,11 @@ them as `WAKEWRIGHT__ADMIN__PASSWORD_FILE` and `WAKEWRIGHT__SECRET_KEY_FILE`.
 Configuration then owns the account: it is created on first start and
 updated, signing everyone out, whenever the secret changes. Use `/healthz`
 for liveness and `/readyz` for readiness. Set
-`WAKEWRIGHT__SERVER__PUBLIC_URL` to the ingress address. Every variable is
+`WAKEWRIGHT__SERVER__PUBLIC_URL` to the ingress address. Declare workers
+the same way, each with its token in a Secret
+(`WAKEWRIGHT__WORKERS__<NAME>__TOKEN_FILE`,
+[configuration.md](configuration.md#workers)); they show on the Workers page
+as set by configuration. Every variable is
 in [configuration.md](configuration.md).
 
 If your ingress already signs people in (an OIDC or forward-auth

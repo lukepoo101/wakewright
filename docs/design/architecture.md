@@ -105,10 +105,11 @@ sequenceDiagram
   answers `426` with the range it supports when they do not match. Each
   judge reports its own version string, which changes whenever its model
   or logic does, so results can be re-run when a judge improves.
-- **Auth**: one shared bearer token, set on the parent and the worker by
-  configuration. While it is unset, the worker API answers `404` and the UI
-  says judging is not set up. The worker API is separate from user
-  sign-in.
+- **Auth**: each worker has its own bearer token (only its hash is
+  stored), created on the Workers page, which shows it once with a pairing
+  string, or declared in the parent's configuration. Pausing, deleting or a
+  new token takes effect at once. The worker API is separate from user
+  sign-in ([ADR 0018](../adr/0018-workers-with-their-own-tokens.md)).
 
 ### How it grows
 
@@ -116,9 +117,8 @@ Training and evaluation are long jobs with files going both ways, so the
 protocol will need more than judging does. The planned additions are
 additive: stored jobs of several kinds, heartbeats that extend a lease
 while a long job runs, separate lanes so judging never waits behind
-training, resumable uploads of trained models, and a token per worker
-that can be rotated or revoked. Each will come with its own ADR when it
-is built.
+training, and resumable uploads of trained models. Each will come with its own ADR
+when it is built.
 
 ## Storage
 

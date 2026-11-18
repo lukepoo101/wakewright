@@ -29,6 +29,9 @@ const paths = {
   playCircle: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2-12.5v7l5.5-3.5L10 8.5Z",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13",
   edit: "M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4",
+  workers: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  key: "M14 4a6 6 0 1 1-5.2 9L4 17.8V20h3v-2h2v-2h1.8l.4-.4A6 6 0 0 1 14 4Zm2 4v.01",
 } as const;
 
 export type IconName = keyof typeof paths;

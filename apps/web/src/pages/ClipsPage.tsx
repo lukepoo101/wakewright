@@ -235,8 +235,8 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
 }
 
 // Why a judges filter may match nothing yet.
-function judgingNote(status: { configured: boolean; judged: number; waiting: number }) {
-  if (!status.configured) return "Judging is not set up, so no clip has been judged.";
+function judgingNote(status: { workers: unknown[]; judged: number; waiting: number }) {
+  if (status.workers.length === 0) return "There are no workers yet, so no clip has been judged.";
   if (status.judged === 0) return "No clip has been judged yet.";
   if (status.waiting > 0) {
     return `${status.waiting.toLocaleString("en-GB")} ${status.waiting === 1 ? "clip is" : "clips are"} still waiting to be judged.`;

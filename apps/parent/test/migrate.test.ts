@@ -109,6 +109,29 @@ describe("0002: clip settings and clipping", () => {
     return db;
   }
 
+  test("0004 keeps every judge result and its worker's name, and drops reported workers", () => {
+    const db = v1Database();
+    migrate(db, { list: migrations.slice(0, 3) });
+    db.run(
+      `INSERT INTO judge_results (clip_id, judge, version, verdict, duration_ms, worker, judged_at)
+       VALUES ('prompt', 'stt', 'v1', 'yes', 5, 'old-worker', 't')`,
+    );
+    db.run(
+      `INSERT INTO workers (name, version, judges_json, first_seen_at, last_seen_at)
+       VALUES ('old-worker', '0.1.0', '[]', 't', 't')`,
+    );
+    db.run(
+      `INSERT INTO judge_leases (id, clip_id, worker, judges_json, claimed_at, expires_at)
+       VALUES ('l1', 'old-vs', 'old-worker', '[]', 't', 't')`,
+    );
+    migrate(db);
+    expect(db.query("SELECT clip_id, worker, verdict FROM judge_results").all()).toEqual([
+      { clip_id: "prompt", worker: "old-worker", verdict: "yes" },
+    ]);
+    expect(db.query("SELECT count(*) AS n FROM workers").get()).toEqual({ n: 0 });
+    expect(db.query("SELECT count(*) AS n FROM judge_leases").get()).toEqual({ n: 0 });
+  });
+
   test("keeps only settings read close to the clip, each wake word once, and keeps every clip", () => {
     const db = v1Database();
     migrate(db);

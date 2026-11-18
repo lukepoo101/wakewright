@@ -13,6 +13,7 @@ import { Devices } from "./devices.ts";
 import { Collector } from "./ingest.ts";
 import { Judging } from "./judging.ts";
 import type { Logger } from "./log.ts";
+import { Workers } from "./workers.ts";
 
 export interface Booted {
   db: Database;
@@ -26,9 +27,9 @@ export interface Booted {
 }
 
 // Start-up shared by the production entry (main.ts) and the development
-// entry (dev.ts): open and migrate the database, apply the auth mode and the
-// configured admin account, build the API, then start the collector and the
-// nightly backup.
+// entry (dev.ts): open and migrate the database, apply the auth mode, the
+// configured admin account and the declared workers, build the API, then
+// start the collector and the nightly backup.
 export async function boot(config: Config, log: Logger): Promise<Booted> {
   const { dataDir } = config.storage;
   const db = openDatabase(config.storage.dbPath);
@@ -57,7 +58,9 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
   await measureUnmeasuredClips(db, blobs, log);
   const box = await SecretBox.create(loadSecretKey(config.secretKey, dataDir, log));
   const devices = new Devices(db, box, { fetch, timeoutMs: config.collector.timeoutMs });
-  const judging = new Judging({ db, log, configured: config.worker.token !== undefined });
+  const judging = new Judging({ db, log });
+  const workers = new Workers({ db, log, onChange: () => judging.notify() });
+  workers.applyDeclared(config.workers);
   const collector = new Collector({
     db,
     blobs,
@@ -73,7 +76,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     devices,
     collector,
     judging,
-    workerToken: config.worker.token,
+    workers,
     blobs,
     intervalMs: config.collector.intervalMs,
     publicUrl: config.server.publicUrl,
@@ -89,8 +92,10 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     }
   });
 
-  if (config.worker.token === undefined) {
-    log.info("judging is off: set WAKEWRIGHT__WORKER__TOKEN to let workers judge clips");
+  if (workers.list().length === 0) {
+    log.info(
+      "no workers yet: add one in the Workers tab, or declare one with WAKEWRIGHT__WORKERS__<NAME>__TOKEN",
+    );
   }
 
   return {

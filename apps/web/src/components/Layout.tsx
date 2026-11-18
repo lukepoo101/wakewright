@@ -10,10 +10,11 @@ import { Button } from "./ui.tsx";
 // rail on wide screens and a bottom bar on phones. Sign out is left out when
 // the server has sign-in off.
 
-const nav: { to: "/" | "/clips" | "/devices"; label: string; icon: IconName }[] = [
+const nav: { to: "/" | "/clips" | "/devices" | "/workers"; label: string; icon: IconName }[] = [
   { to: "/", label: "Home", icon: "home" },
   { to: "/clips", label: "Clips", icon: "clips" },
   { to: "/devices", label: "Devices", icon: "devices" },
+  { to: "/workers", label: "Workers", icon: "workers" },
 ];
 
 const nextTheme: Record<ThemeChoice, ThemeChoice> = {

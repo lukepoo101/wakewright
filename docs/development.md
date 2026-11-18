@@ -30,10 +30,11 @@ devices hear a new synthetic clip every 45 and 70 seconds; add them in the UI
 as `127.0.0.1:23241` and `127.0.0.1:23242` with the password `dev`. The
 first reports vsWakeWord scores (threshold 10.5, some over twice that), the
 second microWakeWord probabilities (0–1), so both score scales show. The
-parent runs with the worker token `dev-worker-token-not-secret`, and the
-fake worker judges each clip within a second of it arriving, with verdicts
-that cover agreement, disagreement and abstention
-([architecture](architecture.md#the-fake-worker)).
+parent declares one worker, `dev-worker`, with the token
+`dev-worker-token-not-secret`; the fake worker runs as it and judges each
+clip within a second of it arriving, with verdicts that cover agreement,
+disagreement and abstention ([architecture](architecture.md#the-fake-worker)).
+Create more workers on the Workers page.
 
 `mise run check` runs three groups, which CI runs as separate jobs.
 
@@ -110,12 +111,12 @@ downloads a model. `uv run pytest -m models` (`mise run worker-models-test`)
 runs the real models: about 2.5 GB the first time, into
 `WAKEWRIGHT_WORKER__CACHE_DIR` or the per-user cache.
 
-To try the worker against `mise run dev`, set
-`WAKEWRIGHT_WORKER__PARENT_URL=http://127.0.0.1:8080` and
-`WAKEWRIGHT_WORKER__TOKEN=dev-worker-token-not-secret` and run
-`mise run worker` (stop the fake worker first, or both judge the same
-clips at different versions). `mise run integration` runs the parent and
-the worker's loop together with fake judges, as CI does.
+To try the worker against `mise run dev`, create a worker on the Workers
+page, set `WAKEWRIGHT_WORKER__PAIRING` to the pairing string it shows and
+run `mise run worker` (stop the fake worker first, or both judge the same
+clips at different versions). `mise run integration` creates a worker
+through the API and runs the worker's loop with its pairing string and fake
+judges, as CI does.
 
 Two Bun behaviours to know: `bun check` and `bun fmt` run a `package.json`
 script of the same name instead of the built-in tool if one exists, so the

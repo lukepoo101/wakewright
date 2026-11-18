@@ -51,6 +51,11 @@ def _parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="pull and judge jobs from the parent (the default)")
     run.add_argument("--once", action="store_true", help="make one claim, judge it and exit")
     run.add_argument(
+        "--pairing",
+        metavar="STRING",
+        help="the pairing string from the parent's Workers tab (or set WAKEWRIGHT_WORKER__PAIRING)",
+    )
+    run.add_argument(
         "--fake-judges",
         action="store_true",
         help="for tests: judges that load no model and answer from a hash of the audio",
@@ -73,7 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "healthcheck":
         return healthcheck()
     try:
-        cfg = config.load(need_parent=command == "run")
+        cfg = config.load(need_parent=command == "run", pairing=getattr(args, "pairing", None))
     except config.ConfigError as e:
         print(f"wakewright-worker: {e}", file=sys.stderr)
         return 2

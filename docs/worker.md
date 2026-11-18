@@ -25,12 +25,15 @@ of it Parakeet), into the cache directory, and reused after that. See
 4 GB of memory with all three judges; on a CPU from the last few years a
 3 s clip takes about half a second.
 
-## Set up the parent
+## Add the worker to the parent
 
-Give the parent a worker token, for example with
-`openssl rand -base64 32`, in `WAKEWRIGHT__WORKER__TOKEN` or
-`WAKEWRIGHT__WORKER__TOKEN_FILE` ([configuration](configuration.md)), and
-restart it. Home then says judging is set up and waits for a worker.
+Each worker has its own token. On the parent's **Workers** page choose
+**Add worker**, give it a name and create it. Wakewright shows its token
+once, with a **pairing string**: the parent's address and the token in one
+value, which is all the worker needs. Check the address it suggests is one
+the worker can reach. For GitOps, declare the worker in the parent's
+configuration instead ([configuration](configuration.md#workers)) and give
+the worker the same token with `WAKEWRIGHT_WORKER__PARENT_URL`.
 
 ## With Docker
 
@@ -41,14 +44,14 @@ with the same tags as the parent's image. Use the same release for both.
 docker volume create wakewright-worker-cache
 docker run -d --name wakewright-worker --restart unless-stopped \
   -v wakewright-worker-cache:/cache \
-  -e WAKEWRIGHT_WORKER__PARENT_URL=http://wakewright.local:8080 \
-  -e WAKEWRIGHT_WORKER__TOKEN='the token you gave the parent' \
+  -e WAKEWRIGHT_WORKER__PAIRING='the pairing string from the Workers page' \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
   ghcr.io/lukepoo101/wakewright-worker:0.1.0
 ```
 
 [`deploy/compose/docker-compose.yml`](../deploy/compose/docker-compose.yml)
-runs the parent and the worker together with the token in a shared secret.
+runs the parent and the worker together, the worker declared with a token
+in a shared secret.
 
 | What         | Value                                                                          |
 | ------------ | ------------------------------------------------------------------------------ |
@@ -68,13 +71,13 @@ worker uses publishes wheels for them.
 
 ```sh
 git clone https://github.com/lukepoo101/wakewright && cd wakewright/apps/worker
-export WAKEWRIGHT_WORKER__PARENT_URL=http://wakewright.local:8080
-export WAKEWRIGHT_WORKER__TOKEN='the token you gave the parent'
-uv run --frozen wakewright-worker
+uv run --frozen wakewright-worker run --pairing 'the pairing string from the Workers page'
 ```
 
-On Windows PowerShell set the variables with
-`$env:WAKEWRIGHT_WORKER__PARENT_URL = "http://wakewright.local:8080"`.
+The same command works in Windows PowerShell. A command-line argument can
+be seen by other users of the machine; on a shared one, set
+`WAKEWRIGHT_WORKER__PAIRING` (`$env:WAKEWRIGHT_WORKER__PAIRING = '...'` in
+PowerShell) or `WAKEWRIGHT_WORKER__PAIRING_FILE` instead.
 Models go to the per-user cache directory: `~/.cache/wakewright-worker` on
 Linux, `~/Library/Caches/wakewright-worker` on macOS,
 `%LOCALAPPDATA%\Wakewright\worker\cache` on Windows. Ctrl+C stops it.
@@ -83,11 +86,13 @@ Linux, `~/Library/Caches/wakewright-worker` on macOS,
 
 | Variable                          | Default            | Meaning                                                       |
 | --------------------------------- | ------------------ | ------------------------------------------------------------- |
-| `WAKEWRIGHT_WORKER__PARENT_URL`   | required           | The parent's address, e.g. `http://wakewright:8080`           |
-| `WAKEWRIGHT_WORKER__TOKEN`        | required           | The parent's `WAKEWRIGHT__WORKER__TOKEN`                      |
+| `WAKEWRIGHT_WORKER__PAIRING`      | none               | The pairing string from the Workers page (or `run --pairing`) |
+| `WAKEWRIGHT_WORKER__PAIRING_FILE` | none               | A file holding the pairing string                             |
+| `WAKEWRIGHT_WORKER__PARENT_URL`   | from the pairing   | The parent's address; replaces the one in a pairing string    |
+| `WAKEWRIGHT_WORKER__TOKEN`        | from the pairing   | This worker's token, instead of a pairing string              |
 | `WAKEWRIGHT_WORKER__TOKEN_FILE`   | none               | A file holding the token, instead of `TOKEN`                  |
 | `WAKEWRIGHT_WORKER__CACHE_DIR`    | the per-user cache | Where models are downloaded (`/cache` in the image)           |
-| `WAKEWRIGHT_WORKER__NAME`         | the host name      | The name the parent shows for this worker                     |
+| `WAKEWRIGHT_WORKER__NAME`         | the host name      | What it reports itself as, shown beside the worker's name     |
 | `WAKEWRIGHT_WORKER__JUDGES`       | all three          | A comma-separated subset of `openwakeword,microwakeword,stt`  |
 | `WAKEWRIGHT_WORKER__BATCH`        | `8`                | Clips claimed at a time (1 to 32); lower it on a slow machine |
 | `WAKEWRIGHT_WORKER__WAIT_SECONDS` | `25`               | How long a claim waits for new clips (0 to 60)                |
@@ -101,7 +106,7 @@ need a few megabytes.
 
 | Command                                        | What it does                                                                |
 | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| `wakewright-worker` (or `run`)                 | judge clips until stopped                                                   |
+| `wakewright-worker` (or `run [--pairing S]`)   | judge clips until stopped                                                   |
 | `wakewright-worker run --once`                 | make one claim, judge what it returns and exit (0 when the parent was used) |
 | `wakewright-worker download-models [--verify]` | download every enabled judge's models and exit; `--verify` re-hashes them   |
 | `wakewright-worker self-test`                  | load every judge and check it answers no for silence, noise and a tone      |
@@ -115,8 +120,12 @@ With Docker, put the command after the image name, for example
 
 The worker logs one line per event. The usual ones:
 
-- `cannot claim jobs ... not set up (404)`: the parent has no worker token.
-- `... refused the worker token (401)`: the tokens differ.
+- `... refused this worker's token (401)`: the token was replaced, its
+  worker was deleted on the Workers page, or it is mistyped.
+- `cannot use the pairing string`: it was cut short when copied, or comes
+  from a newer Wakewright than this worker.
+- `no worker API at this address (404)`: the address is not a Wakewright
+  parent, or the parent is older than the worker.
 - `cannot claim jobs` with a connection error: the parent is down or the
   address is wrong; the worker retries every few seconds up to a minute.
 - `judge could not be prepared`: a model could not be downloaded (the

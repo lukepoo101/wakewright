@@ -1,10 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
+import { decodePairing } from "../../apps/parent/src/pairing.ts";
 import { scoreNumbers } from "../../apps/web/src/score.ts";
 import { fakeVerdicts, runFakeWorker } from "../../devtools/fake-worker/src/worker.ts";
 
 // The user's path through a fresh instance, in order: first-run setup,
 // sign out and in, add the fake device, see its clips arrive, play one,
-// then have the fake worker judge them and find the disagreements.
+// have the fake worker judge them as the declared worker and find the
+// disagreements, then create a worker in the UI, connect, pause and delete it.
 // Later steps build on earlier ones, so the file runs serially.
 test.describe.configure({ mode: "serial" });
 
@@ -13,7 +15,8 @@ const PASSWORD = "e2e correct horse battery";
 // Where the server under test reaches the fake device, and where the test does.
 const DEVICE_URL = process.env.E2E_FAKE_KIOSK_URL ?? "http://127.0.0.1:23250";
 const FAKE_CONTROL = "http://127.0.0.1:23250";
-// The server under test's worker token (playwright.config.ts, ci.yml).
+// The server under test's declared worker and its token (playwright.config.ts, ci.yml).
+const DECLARED = "e2e-declared";
 const WORKER_TOKEN = "e2e-worker-token-not-secret";
 
 test("first-run setup creates the admin account and signs in", async ({ page }) => {
@@ -95,7 +98,8 @@ test("the fake worker judges every clip, and the Disagreements filter finds them
   baseURL,
 }) => {
   await signIn(page);
-  await expect(page.getByText("No worker has connected yet")).toBeVisible();
+  await expect(page.getByText("No worker connected")).toBeVisible();
+  await expect(page.getByText("never connected")).toBeVisible();
 
   // What the judges will say about each clip: the fake's verdicts, counted
   // as the parent counts them (abstentions are not votes).
@@ -135,7 +139,8 @@ test("the fake worker judges every clip, and the Disagreements filter finds them
       .toBe(0);
 
     await page.reload();
-    await expect(page.getByText("e2e-worker connected")).toBeVisible();
+    await expect(page.getByText("1 of 1 worker connected")).toBeVisible();
+    await expect(page.getByText(DECLARED)).toBeVisible();
     await page.getByRole("link", { name: /^\d+ disagreements?$/ }).click();
     await expect(page.getByLabel("Judges")).toHaveValue("disagree");
     await expect(page.getByRole("button", { name: /Disagreements/ })).toHaveAttribute(
@@ -161,6 +166,94 @@ test("the fake worker judges every clip, and the Disagreements filter finds them
     await page.getByRole("button", { name: /Disagreements/ }).click();
     await expect(page.getByLabel("Judges")).toHaveValue("");
     await expect(page.getByText(`of ${expected.size} clips`)).toBeVisible();
+  } finally {
+    controller.abort();
+    await worker;
+  }
+});
+
+test("a worker created in the UI: token shown once, connects, pauses, is deleted", async ({
+  page,
+  request,
+}) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Workers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Workers", exact: true })).toBeVisible();
+  // The declared worker is listed, read-only.
+  const declared = page.getByRole("article", { name: DECLARED });
+  await expect(declared.getByText("Set by configuration")).toBeVisible();
+  await expect(declared.getByRole("button")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Add worker" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Create worker" }).click();
+  await expect(dialog.getByText("Give the worker a name.")).toBeVisible();
+  await dialog.getByLabel("Name").fill("Laptop");
+  await dialog.getByLabel("Notes").fill("Under the desk");
+  await dialog.getByRole("button", { name: "Create worker" }).click();
+
+  await expect(dialog.getByRole("heading", { name: "Laptop is ready to connect" })).toBeVisible();
+  const token =
+    (await dialog
+      .getByRole("figure", { name: "Token", exact: true })
+      .locator("pre")
+      .textContent()) ?? "";
+  expect(token).toMatch(/^wwk_[0-9A-Za-z]{43}$/);
+  const pairing = decodePairing(
+    (await dialog
+      .getByRole("figure", { name: "Pairing string", exact: true })
+      .locator("pre")
+      .textContent()) ?? "",
+  );
+  expect(pairing.token).toBe(token);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // Shown once: neither the page nor the API has it any more.
+  await page.reload();
+  const card = page.getByRole("article", { name: "Laptop" });
+  await expect(card.getByText("Never connected")).toBeVisible();
+  await expect(card.getByText("Under the desk")).toBeVisible();
+  expect(await page.content()).not.toContain(token);
+  expect(await (await page.request.get("/api/v1/workers")).text()).not.toContain(token);
+
+  const controller = new AbortController();
+  const worker = runFakeWorker({
+    parentUrl: pairing.url,
+    token: pairing.token,
+    name: "e2e-laptop",
+    waitSeconds: 2,
+    signal: controller.signal,
+  });
+  try {
+    await expect(card.getByText("Connected", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(card.getByText("e2e-laptop")).toBeVisible();
+
+    // Paused, it gets no clips: a new clip waits for as long as it stays paused.
+    await card.getByRole("button", { name: "Pause Laptop" }).click();
+    await expect(card.getByText(/^Paused/)).toBeVisible();
+    await request.post(`${FAKE_CONTROL}/_fake/hear`, { data: {} });
+    const { devices } = await (await page.request.get("/api/v1/devices")).json();
+    await page.request.post(`/api/v1/devices/${devices[0].id}/poll`, {
+      headers: { "Content-Type": "application/json" },
+      data: {},
+    });
+    const waiting = async () => (await (await page.request.get("/api/v1/judging")).json()).waiting;
+    await expect.poll(waiting).toBe(1);
+    await page.waitForTimeout(4_000);
+    expect(await waiting()).toBe(1);
+
+    await card.getByRole("button", { name: "Resume Laptop" }).click();
+    await expect.poll(waiting, { timeout: 15_000 }).toBe(0);
+
+    // Deleted, its token is refused at once.
+    await card.getByRole("button", { name: "Delete Laptop" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete worker" }).click();
+    await expect(page.getByRole("article", { name: "Laptop" })).toHaveCount(0);
+    const refused = await request.post("/api/worker/v1/jobs/claim", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { protocol: 1, worker: { name: "x", version: "1" }, judges: [], waitSeconds: 0 },
+    });
+    expect(refused.status()).toBe(401);
   } finally {
     controller.abort();
     await worker;

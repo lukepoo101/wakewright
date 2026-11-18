@@ -4,11 +4,12 @@
 // prefixed logs. The kitchen runs vsWakeWord with the same wake word in both
 // slots, and hands over older clips its earlier microWakeWord recorded; the
 // lounge runs microWakeWord. So both score scales show, side by side. The
-// fake worker's verdicts cover every agreement state. Ctrl-C stops all.
+// fake worker is the declared worker "dev-worker", as a deployment would
+// set one; its verdicts cover every agreement state. Ctrl-C stops all.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-/** Not a secret: the development parent and fake worker share it. */
+/** Not a secret: the development parent declares the fake worker with it. */
 const WORKER_TOKEN = "dev-worker-token-not-secret";
 
 const processes = [
@@ -18,7 +19,8 @@ const processes = [
     env: {
       WAKEWRIGHT__STORAGE__DATA_DIR: ".dev-data",
       WAKEWRIGHT__LOG__LEVEL: "debug",
-      WAKEWRIGHT__WORKER__TOKEN: WORKER_TOKEN,
+      WAKEWRIGHT__WORKERS__DEV_WORKER__TOKEN: WORKER_TOKEN,
+      WAKEWRIGHT__WORKERS__DEV_WORKER__NOTES: "The fake worker that mise run dev starts.",
     },
   },
   {

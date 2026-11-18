@@ -4,14 +4,15 @@ import type { MiddlewareHandler } from "hono";
 import type { BlobStore } from "../blobs.ts";
 import { getClip } from "../db/clips.ts";
 import { type Judging, PROTOCOL } from "../judging.ts";
+import type { WorkerIdentity, Workers } from "../workers.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
 // The worker API, /api/worker/v1: workers claim clips to judge (a long
 // poll), download their audio and send back each judge's verdict. It is
-// authenticated by the shared worker token only, never by a user session,
-// and answers 404 while no token is configured. docs/workers.md describes
-// it for people writing a worker; docs/api/worker-v1.openapi.json is the
-// committed document (scripts/worker-openapi.ts).
+// authenticated only by a worker's own token (ADR 0018), never by a user
+// session. docs/workers.md describes it for people writing a worker;
+// docs/api/worker-v1.openapi.json is the committed document
+// (scripts/worker-openapi.ts).
 
 export const WORKER_BASE = "/api/worker/v1";
 /** The security scheme name in the OpenAPI document. */
@@ -19,8 +20,13 @@ export const WORKER_AUTH = "workerToken";
 export const workerSecurityScheme = {
   type: "http",
   scheme: "bearer",
-  description: "The shared worker token, set on the parent as WAKEWRIGHT__WORKER__TOKEN.",
+  description:
+    "The worker's own token, shown once when the worker is created in the parent's Workers tab, or set in the parent's configuration for a declared worker.",
 } as const;
+
+interface WorkerEnv extends ApiEnv {
+  Variables: ApiEnv["Variables"] & { worker: WorkerIdentity };
+}
 
 const Name = z
   .string()
@@ -57,10 +63,13 @@ const ClaimRequest = z
       }),
     worker: z
       .object({
-        name: z.string().min(1).max(100).openapi({ example: "judge-1" }),
-        version: z.string().min(1).max(100).openapi({ example: "0.0.3" }),
+        name: z.string().min(1).max(100).openapi({ example: "judge-laptop" }),
+        version: z.string().min(1).max(100).openapi({ example: "0.2.0" }),
       })
-      .openapi({ description: "Shown in the UI; one name per running worker." }),
+      .openapi({
+        description:
+          "What the worker says about itself, shown in the UI beside the worker's own name: usually its host name and its version. The token, not this name, identifies the worker.",
+      }),
     judges: z
       .array(OfferedJudge)
       .min(1)
@@ -128,8 +137,9 @@ const ClipParam = z.object({
 });
 
 const security = [{ [WORKER_AUTH]: [] }];
-const unauthorised = errorContent("No token, or the wrong token");
-const notSetUp = errorContent("Judging is not set up: the parent has no worker token");
+const unauthorised = errorContent(
+  "No token, or a token that is not a worker's: wrong, replaced, or its worker was deleted",
+);
 
 const routes = {
   claim: createRoute({
@@ -138,7 +148,7 @@ const routes = {
     tags: ["worker"],
     summary: "Lease clips to judge, waiting for one when there are none (long poll)",
     description:
-      "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
+      "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Only judges the worker is allowed to run are asked for, and a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
     security,
     request: {
       body: { required: true, content: { "application/json": { schema: ClaimRequest } } },
@@ -150,7 +160,6 @@ const routes = {
       },
       400: errorContent("The request is not valid"),
       401: unauthorised,
-      404: notSetUp,
       426: {
         description: "The parent does not speak this protocol version",
         content: { "application/json": { schema: Unsupported } },
@@ -170,7 +179,7 @@ const routes = {
         content: { "audio/wav": { schema: z.string().openapi({ format: "binary" }) } },
       },
       401: unauthorised,
-      404: errorContent("No such clip, or judging is not set up"),
+      404: errorContent("No such clip"),
     },
   }),
   results: createRoute({
@@ -189,8 +198,9 @@ const routes = {
       204: { description: "Stored" },
       400: errorContent("The request is not valid, or names a judge the job did not ask for"),
       401: unauthorised,
-      404: notSetUp,
-      409: errorContent("The lease has expired or belongs to another claim: claim again"),
+      409: errorContent(
+        "The lease has expired, was released (the worker was paused or changed) or belongs to another worker: claim again",
+      ),
     },
   }),
 };
@@ -199,11 +209,11 @@ export function workerRoutes(deps: {
   db: Database;
   blobs: BlobStore;
   judging: Judging;
-  token: string | undefined;
+  workers: Workers;
 }) {
   const { db, blobs, judging } = deps;
-  const app = newApi<ApiEnv>();
-  app.use("*", workerAuth(deps.token));
+  const app = newApi<WorkerEnv>();
+  app.use("*", workerAuth(deps.workers));
   // The protocol is checked before the body is validated, so a newer
   // worker whose request this parent cannot parse still learns why.
   app.use("/jobs/claim", async (c, next) => {
@@ -228,7 +238,7 @@ export function workerRoutes(deps: {
       // A long poll outlasts Bun's default 10 s idle timeout.
       const server = c.env as { timeout?: (req: Request, seconds: number) => void } | undefined;
       server?.timeout?.(c.req.raw, Math.ceil(body.waitSeconds) + 15);
-      const jobs = await judging.claim(body, c.req.raw.signal);
+      const jobs = await judging.claim(c.get("worker"), body, c.req.raw.signal);
       return c.json({ jobs }, 200);
     })
     .openapi(routes.audio, async (c) => {
@@ -242,13 +252,18 @@ export function workerRoutes(deps: {
       });
     })
     .openapi(routes.results, (c) => {
-      const outcome = judging.submit(c.req.valid("param").id, c.req.valid("json").results);
+      const outcome = judging.submit(
+        c.get("worker"),
+        c.req.valid("param").id,
+        c.req.valid("json").results,
+      );
       if (outcome.ok) return c.body(null, 204);
       if (outcome.reason === "stale") {
         return c.json(
           {
             error: "lease_expired",
-            message: "This job's lease has expired or was never issued. Claim again.",
+            message:
+              "This job's lease has expired, was released or is not this worker's. Claim again.",
           },
           409,
         );
@@ -257,35 +272,27 @@ export function workerRoutes(deps: {
     });
 }
 
-// Bearer token check. The token is compared as SHA-256 digests in constant
-// time, so neither its content nor its length leaks through timing.
-function workerAuth(token: string | undefined): MiddlewareHandler<ApiEnv> {
-  const expected = token === undefined ? undefined : digest(token);
+// Bearer token check: the token must be a worker's (Workers.authenticate
+// checks it against every worker in constant time). Never logged.
+function workerAuth(workers: Workers): MiddlewareHandler<WorkerEnv> {
   return async (c, next) => {
-    if (!expected) {
-      return c.json(
-        { error: "not_found", message: "Judging is not set up: this server has no worker token." },
-        404,
-      );
-    }
     const header = c.req.header("Authorization") ?? "";
     const given = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
-    if (!given || !equal(await digest(given), await expected)) {
+    const worker = given ? workers.authenticate(given) : null;
+    if (!worker) {
       c.header("WWW-Authenticate", 'Bearer realm="wakewright-worker"');
-      return c.json({ error: "unauthenticated", message: "Send the worker token." }, 401);
+      return c.json(
+        {
+          error: "unauthenticated",
+          message:
+            "Send this worker's token. A worker's token stops working when it is replaced or the worker is deleted.",
+        },
+        401,
+      );
     }
+    c.set("worker", worker);
     await next();
   };
-}
-
-async function digest(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
-}
-
-function equal(a: Uint8Array, b: Uint8Array): boolean {
-  let diff = a.length ^ b.length;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return diff === 0;
 }
 
 /**
@@ -297,7 +304,7 @@ export function workerOpenApiDocument() {
   const unused = undefined as never;
   const app = newApi().route(
     WORKER_BASE,
-    workerRoutes({ db: unused, blobs: unused, judging: unused, token: undefined }),
+    workerRoutes({ db: unused, blobs: unused, judging: unused, workers: unused }),
   );
   app.openAPIRegistry.registerComponent("securitySchemes", WORKER_AUTH, workerSecurityScheme);
   return app.getOpenAPI31Document({

@@ -88,3 +88,82 @@ describe("auth mode", () => {
     ).toThrow(/has no effect when WAKEWRIGHT__AUTH__MODE is none/);
   });
 });
+
+describe("workers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wakewright-workers-"));
+
+  test("none are declared by default", () => {
+    expect(loadConfig({}).workers).toEqual([]);
+  });
+
+  test("are declared with keyed variables, the token given or in a file", () => {
+    writeFileSync(join(dir, "token"), "a-token-from-a-file-0123\n");
+    const config = loadConfig({
+      WAKEWRIGHT__WORKERS__CLUSTER_WORKER__TOKEN_FILE: join(dir, "token"),
+      WAKEWRIGHT__WORKERS__CLUSTER_WORKER__JUDGES: "stt, openwakeword,stt",
+      WAKEWRIGHT__WORKERS__CLUSTER_WORKER__NOTES: " In the cluster ",
+      WAKEWRIGHT__WORKERS__LAPTOP2__TOKEN: "  a-direct-token-0123456  ",
+      WAKEWRIGHT__WORKERS__LAPTOP2__ENABLED: "FALSE",
+      WAKEWRIGHT__WORKERS__LAPTOP2__JUDGES: "all",
+    });
+    expect(config.workers).toEqual([
+      {
+        name: "cluster-worker",
+        token: "a-token-from-a-file-0123",
+        notes: "In the cluster",
+        enabled: true,
+        judges: ["openwakeword", "stt"],
+      },
+      { name: "laptop2", token: "a-direct-token-0123456", notes: "", enabled: false, judges: null },
+    ]);
+  });
+
+  test("refuse what cannot work, naming the variable", () => {
+    const token = "a-long-enough-token-0123";
+    const bad: [Record<string, string>, RegExp][] = [
+      [{ WAKEWRIGHT__WORKERS__X__TOKEN: "short" }, /at least 16/],
+      [{ WAKEWRIGHT__WORKERS__X__NOTES: "no token" }, /worker x needs a token/],
+      [
+        { WAKEWRIGHT__WORKERS__X__TOKEN: token, WAKEWRIGHT__WORKERS__X__TOKEN_FILE: "/x" },
+        /not both/,
+      ],
+      [
+        { WAKEWRIGHT__WORKERS__X__TOKEN: token, WAKEWRIGHT__WORKERS__Y__TOKEN: token },
+        /same token/,
+      ],
+      [
+        { WAKEWRIGHT__WORKERS__X__TOKEN: token, WAKEWRIGHT__WORKERS__X__ENABLED: "yes" },
+        /true or false/,
+      ],
+      [
+        { WAKEWRIGHT__WORKERS__X__TOKEN: token, WAKEWRIGHT__WORKERS__X__JUDGES: "Bad Judge" },
+        /JUDGES/,
+      ],
+      [
+        { WAKEWRIGHT__WORKERS__X__COLOUR: "red" },
+        /WAKEWRIGHT__WORKERS__X__COLOUR is not a worker setting/,
+      ],
+      [{ WAKEWRIGHT__WORKERS__BAD__NAME__TOKEN: token }, /not a worker setting/],
+      [{ WAKEWRIGHT__WORKERS___X__TOKEN: token }, /not a worker setting/],
+      [
+        { WAKEWRIGHT__WORKERS__X__TOKEN_FILE: join(dir, "missing") },
+        /cannot read WAKEWRIGHT__WORKERS__X__TOKEN_FILE/,
+      ],
+      [
+        { WAKEWRIGHT__WORKERS__x__TOKEN: token, WAKEWRIGHT__WORKERS__X__TOKEN: `${token}2` },
+        /both set worker x's TOKEN/,
+      ],
+    ];
+    for (const [env, message] of bad) expect(() => loadConfig(env)).toThrow(message);
+  });
+
+  test("the removed shared token stops the start with what to do instead", () => {
+    for (const name of ["WAKEWRIGHT__WORKER__TOKEN", "WAKEWRIGHT__WORKER__TOKEN_FILE"]) {
+      expect(() => loadConfig({ [name]: "the-old-shared-token-0123" })).toThrow(
+        new RegExp(
+          `${name} was removed in Wakewright 0\\.2\\.0.*WAKEWRIGHT__WORKERS__<NAME>__TOKEN`,
+        ),
+      );
+    }
+  });
+});

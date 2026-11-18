@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 
-// Judge results, leases and workers (migration 0003, ADR 0016).
+// Judge results and leases (migrations 0003 and 0004, ADR 0016). Workers
+// are in workers.ts.
 //
 // There is no stored job queue. A clip needs judging while it lacks a
 // result for a (judge, version) that a worker offers and that covers the
@@ -26,6 +27,7 @@ export interface JudgeResultRow {
   transcript: string | null;
   detail: string | null;
   duration_ms: number;
+  /** The worker's name when it sent the result. */
   worker: string;
   judged_at: string;
 }
@@ -33,18 +35,10 @@ export interface JudgeResultRow {
 export interface LeaseRow {
   id: string;
   clip_id: string;
-  worker: string;
+  worker_id: string;
   judges_json: string;
   claimed_at: string;
   expires_at: string;
-}
-
-export interface WorkerRow {
-  name: string;
-  version: string;
-  judges_json: string;
-  first_seen_at: string;
-  last_seen_at: string;
 }
 
 // Each judge's latest result on each clip (the most recent, whatever its
@@ -186,8 +180,8 @@ export function deleteExpiredLeases(db: Database, now: string): void {
 
 export function insertLease(db: Database, lease: LeaseRow): void {
   db.query(
-    `INSERT INTO judge_leases (id, clip_id, worker, judges_json, claimed_at, expires_at)
-     VALUES ($id, $clip_id, $worker, $judges_json, $claimed_at, $expires_at)`,
+    `INSERT INTO judge_leases (id, clip_id, worker_id, judges_json, claimed_at, expires_at)
+     VALUES ($id, $clip_id, $worker_id, $judges_json, $claimed_at, $expires_at)`,
   ).run({ ...lease });
 }
 
@@ -239,28 +233,6 @@ export function latestResults(db: Database, clipId: string): JudgeResultRow[] {
        ORDER BY judge`,
     )
     .all(clipId);
-}
-
-export function upsertWorker(
-  db: Database,
-  worker: { name: string; version: string; judges: OfferedJudge[] },
-  at: string,
-): void {
-  db.query(
-    `INSERT INTO workers (name, version, judges_json, first_seen_at, last_seen_at)
-     VALUES (?1, ?2, ?3, ?4, ?4)
-     ON CONFLICT (name) DO UPDATE SET
-       version = excluded.version, judges_json = excluded.judges_json,
-       last_seen_at = excluded.last_seen_at`,
-  ).run(worker.name, worker.version, JSON.stringify(worker.judges), at);
-}
-
-export function touchWorker(db: Database, name: string, at: string): void {
-  db.query("UPDATE workers SET last_seen_at = ? WHERE name = ?").run(at, name);
-}
-
-export function listWorkers(db: Database): WorkerRow[] {
-  return db.query<WorkerRow, []>("SELECT * FROM workers ORDER BY last_seen_at DESC, name").all();
 }
 
 export interface JudgingCounts {

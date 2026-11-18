@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/api/index.ts",
     "./kiosk/shapes": "./src/kiosk/shapes.ts",
-    "./clipping-rule": "./src/clipping-rule.ts"
+    "./clipping-rule": "./src/clipping-rule.ts",
+    "./pairing": "./src/pairing.ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "1.6.3",

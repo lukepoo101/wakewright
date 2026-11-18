@@ -3,15 +3,15 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 
 // All configuration comes from WAKEWRIGHT__SECTION__KEY environment
-// variables, validated here. Settings a user edits at runtime (devices and
-// so on) live in the database, not here. docs/configuration.md lists every
+// variables, validated here. Settings a user edits at runtime (devices,
+// workers created in the UI and so on) live in the database, not here. docs/configuration.md lists every
 // variable; keep the two in step.
 //
 // A secret can be given directly or, better, as a path in the matching
 // `_FILE` variable (a Docker or Kubernetes secret). Setting both is an error.
 
 const MIN_PASSWORD_LENGTH = 12;
-const MIN_WORKER_TOKEN_LENGTH = 16;
+export const MIN_WORKER_TOKEN_LENGTH = 16;
 
 const Env = z.object({
   WAKEWRIGHT__SERVER__HOST: z.string().min(1).default("0.0.0.0"),
@@ -39,10 +39,8 @@ const Env = z.object({
   WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS: z.coerce.number().min(1).max(120).default(10),
   WAKEWRIGHT__SECRET_KEY: z.string().optional(),
   WAKEWRIGHT__SECRET_KEY_FILE: z.string().min(1).optional(),
-  // The token workers send to /api/worker/v1. Unset: judging is off and the
-  // worker API answers 404.
-  WAKEWRIGHT__WORKER__TOKEN: z.string().optional(),
-  WAKEWRIGHT__WORKER__TOKEN_FILE: z.string().min(1).optional(),
+  // Declared workers, WAKEWRIGHT__WORKERS__<NAME>__<FIELD>, are read by
+  // declaredWorkers() below: their names are not known in advance.
 });
 
 export type AuthMode = "local" | "none";
@@ -67,8 +65,22 @@ export interface Config {
    * use (and on first start create) `<data dir>/secret.key`.
    */
   secretKey?: Uint8Array;
-  /** The shared worker token; undefined while judging is not set up. */
-  worker: { token?: string };
+  /**
+   * Workers declared in configuration (WAKEWRIGHT__WORKERS__<NAME>__*),
+   * applied on every start. Workers created in the UI live in the database.
+   */
+  workers: DeclaredWorker[];
+}
+
+/** A worker set by configuration: read-only in the UI, applied on every start. */
+export interface DeclaredWorker {
+  /** From the variable's <NAME>: lower case, underscores as dashes. */
+  name: string;
+  token: string;
+  notes: string;
+  enabled: boolean;
+  /** The judges it may run, or null for every judge. */
+  judges: string[] | null;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -94,13 +106,20 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
   const key = secret(e, "WAKEWRIGHT__SECRET_KEY");
-  const workerToken = secret(e, "WAKEWRIGHT__WORKER__TOKEN");
-  if (workerToken !== undefined && workerToken.trim().length < MIN_WORKER_TOKEN_LENGTH) {
-    throw new Error(
-      `Invalid configuration: WAKEWRIGHT__WORKER__TOKEN must be at least ${MIN_WORKER_TOKEN_LENGTH} characters, ` +
-        "for example the output of `openssl rand -base64 32`",
-    );
+  // 0.2.0 replaced the shared token with a token per worker. Say what to
+  // do instead of starting with judging silently broken.
+  for (const old of ["WAKEWRIGHT__WORKER__TOKEN", "WAKEWRIGHT__WORKER__TOKEN_FILE"]) {
+    if (env[old] !== undefined) {
+      throw new Error(
+        `Invalid configuration: ${old} was removed in Wakewright 0.2.0, which gives each worker ` +
+          `its own token. Declare the worker instead, keeping its token: rename ${old} to ` +
+          `${old.replace("WAKEWRIGHT__WORKER__", "WAKEWRIGHT__WORKERS__<NAME>__")} (for example ` +
+          `${old.replace("WAKEWRIGHT__WORKER__", "WAKEWRIGHT__WORKERS__MY_WORKER__")}), or remove it ` +
+          "and create the worker in the Workers tab. See docs/configuration.md#workers",
+      );
+    }
   }
+  const workers = declaredWorkers(env);
 
   return {
     server: {
@@ -120,8 +139,123 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     admin: { username: e.WAKEWRIGHT__ADMIN__USERNAME, password },
     secretKey: key === undefined ? undefined : parseSecretKey(key, "WAKEWRIGHT__SECRET_KEY"),
-    worker: { token: workerToken?.trim() },
+    workers,
   };
+}
+
+const WORKER_VAR =
+  /^WAKEWRIGHT__WORKERS__([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)__(TOKEN|TOKEN_FILE|JUDGES|NOTES|ENABLED)$/;
+const JUDGE_NAME = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+
+/**
+ * Workers declared as WAKEWRIGHT__WORKERS__<NAME>__TOKEN (or __TOKEN_FILE),
+ * with optional __JUDGES (comma-separated, or "all"), __NOTES and
+ * __ENABLED (true or false). <NAME> becomes the worker's name in lower
+ * case with underscores as dashes: CLUSTER_WORKER is "cluster-worker".
+ * A declared token is accepted as given (at least 16 characters).
+ */
+export function declaredWorkers(env: Record<string, string | undefined>): DeclaredWorker[] {
+  const fields = new Map<string, Map<string, string>>();
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith("WAKEWRIGHT__WORKERS__") || value === undefined) continue;
+    const match = WORKER_VAR.exec(key);
+    if (!match) {
+      throw new Error(
+        `Invalid configuration: ${key} is not a worker setting. Use ` +
+          "WAKEWRIGHT__WORKERS__<NAME>__TOKEN, __TOKEN_FILE, __JUDGES, __NOTES or __ENABLED, " +
+          "where <NAME> is letters and digits joined by single underscores",
+      );
+    }
+    const name = (match[1] as string).toLowerCase().replaceAll("_", "-");
+    const field = match[2] as string;
+    const own = fields.get(name) ?? new Map<string, string>();
+    if (own.has(`${field}:key`)) {
+      throw new Error(
+        `Invalid configuration: ${key} and ${own.get(`${field}:key`)} both set worker ${name}'s ${field}`,
+      );
+    }
+    own.set(field, value);
+    own.set(`${field}:key`, key);
+    fields.set(name, own);
+  }
+
+  const workers: DeclaredWorker[] = [];
+  const tokens = new Map<string, string>();
+  for (const [name, f] of [...fields].sort(([a], [b]) => a.localeCompare(b))) {
+    const at = (field: string) => f.get(`${field}:key`) ?? field;
+    if (name.length > 64) {
+      throw new Error(
+        `Invalid configuration: ${at("TOKEN")}: a worker name is at most 64 characters`,
+      );
+    }
+    const direct = f.get("TOKEN");
+    const file = f.get("TOKEN_FILE");
+    if (direct !== undefined && file !== undefined) {
+      throw new Error(`Invalid configuration: set ${at("TOKEN")} or ${at("TOKEN_FILE")}, not both`);
+    }
+    let token = direct;
+    if (file !== undefined) {
+      try {
+        token = readFileSync(file, "utf8").replace(/\r?\n$/, "");
+      } catch (error) {
+        throw new Error(
+          `Invalid configuration: cannot read ${at("TOKEN_FILE")} (${file}): ${(error as Error).message}`,
+        );
+      }
+    }
+    token = token?.trim();
+    if (!token) {
+      throw new Error(
+        `Invalid configuration: worker ${name} needs a token: set ` +
+          `WAKEWRIGHT__WORKERS__${name.toUpperCase().replaceAll("-", "_")}__TOKEN or __TOKEN_FILE`,
+      );
+    }
+    if (token.length < MIN_WORKER_TOKEN_LENGTH) {
+      throw new Error(
+        `Invalid configuration: worker ${name}'s token must be at least ${MIN_WORKER_TOKEN_LENGTH} ` +
+          "characters, for example the output of `openssl rand -base64 32`",
+      );
+    }
+    const clash = tokens.get(token);
+    if (clash !== undefined) {
+      throw new Error(
+        `Invalid configuration: workers ${clash} and ${name} have the same token; give each its own`,
+      );
+    }
+    tokens.set(token, name);
+
+    let judges: string[] | null = null;
+    const rawJudges = f.get("JUDGES")?.trim();
+    if (rawJudges && rawJudges.toLowerCase() !== "all") {
+      judges = [...new Set(rawJudges.split(",").map((j) => j.trim().toLowerCase()))].filter(
+        Boolean,
+      );
+      const bad = judges.filter((j) => !JUDGE_NAME.test(j));
+      if (judges.length === 0 || bad.length > 0) {
+        throw new Error(
+          `Invalid configuration: ${at("JUDGES")} must be "all" or judge names separated by ` +
+            `commas, such as openwakeword,microwakeword,stt; got ${JSON.stringify(rawJudges)}`,
+        );
+      }
+      judges.sort();
+    }
+
+    const rawEnabled = f.get("ENABLED")?.trim().toLowerCase();
+    let enabled = true;
+    if (rawEnabled !== undefined && rawEnabled !== "") {
+      if (!["true", "false"].includes(rawEnabled)) {
+        throw new Error(`Invalid configuration: ${at("ENABLED")} must be true or false`);
+      }
+      enabled = rawEnabled === "true";
+    }
+
+    const notes = f.get("NOTES")?.trim() ?? "";
+    if (notes.length > 500) {
+      throw new Error(`Invalid configuration: ${at("NOTES")} is at most 500 characters`);
+    }
+    workers.push({ name, token, notes, enabled, judges });
+  }
+  return workers;
 }
 
 export { MIN_PASSWORD_LENGTH };
@@ -147,7 +281,7 @@ export function parseSecretKey(text: string, name: string): Uint8Array {
 // `echo` and most editors add one.
 function secret(
   e: Partial<Record<string, unknown>>,
-  name: "WAKEWRIGHT__ADMIN__PASSWORD" | "WAKEWRIGHT__SECRET_KEY" | "WAKEWRIGHT__WORKER__TOKEN",
+  name: "WAKEWRIGHT__ADMIN__PASSWORD" | "WAKEWRIGHT__SECRET_KEY",
 ): string | undefined {
   const direct = e[name] as string | undefined;
   const file = e[`${name}_FILE`] as string | undefined;
