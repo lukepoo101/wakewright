@@ -1,0 +1,10 @@
+# actionlint configuration.
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      # GitHub's self-repository syntax (`uses: $/...`, July 2026,
+      # https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/)
+      # is newer than actionlint 1.7.12, the latest release. zizmor's
+      # self-repository audit asks for it. Remove this entry once an
+      # actionlint release understands the syntax.
+      - 'reusable workflow call "\$/\.github/workflows/publish\.yml" at "uses" is not following the format'

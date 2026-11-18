@@ -1,0 +1,320 @@
+name: Publish
+
+# Publishes the parent image from main, and cuts a release when the merged
+# commit carries a version that has no tag yet (a "Release X.Y.Z" pull
+# request made by `mise run release`; see docs/RELEASING.md).
+#
+# Called by ci.yml after `CI OK` passes on a push to main, so nothing is
+# published from a commit that failed CI and nothing here ever runs for a
+# pull request. Every push publishes `edge` and `sha-<short>`; a release
+# also publishes `X.Y.Z` (and `X.Y` and `latest` when it is not a
+# pre-release), then the GitHub release. Attestations name this file as the
+# signer workflow, which is what users verify against.
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  meta:
+    name: Publish / version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      # The product version lives in apps/parent/package.json (the server
+      # reports it); scripts/check-versions.ts keeps the other workspace
+      # packages and CHANGELOG.md in step with it.
+      - name: Decide whether this commit is a release
+        id: version
+        run: |
+          version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' apps/parent/package.json)
+          release=false
+          if [ "$version" != 0.0.0 ] && ! git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            release=true
+            latest=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+            # A release must be newer than every existing tag.
+            if [ -n "$latest" ] && [ "$(printf '%s\n' "${latest#v}" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+              echo "::error::Version $version is not newer than the latest tag $latest."
+              exit 1
+            fi
+          fi
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          {
+            echo "version=$version"
+            echo "release=$release"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version, release: $release, pre-release: $prerelease" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Publish / build (${{ matrix.arch }})
+    needs: meta
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Image labels
+        id: labels
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.title=wakewright
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Pushed by digest only; the merge job tags the multi-arch index.
+      # Reads the layer cache CI on main just wrote for this architecture.
+      # The SBOM (BuildKit, SPDX) covers the runtime image and the build
+      # stage, where the bundled npm packages are visible.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/parent.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.labels.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=parent-${{ matrix.arch }}
+
+      - name: Record the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  image:
+    name: Publish / image
+    needs: [meta, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # Keyless signing of the attestation with this workflow's identity.
+      id-token: write
+      attestations: write
+      # Image scan results go to code scanning.
+      security-events: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      RELEASE: ${{ needs.meta.outputs.release }}
+      PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The index first gets only its immutable `sha-<short>` tag. The moving
+      # tags follow once it has passed the scan and been attested, so
+      # `edge`, `latest` and `X.Y.Z` never point at an unchecked image.
+      - name: Create the multi-arch index
+        id: index
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          SHA: ${{ github.sha }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          short="sha-${SHA::7}"
+          # shellcheck disable=SC2046 # one argument per digest file
+          docker buildx imagetools create -t "$IMAGE:$short" \
+            --annotation "index:org.opencontainers.image.source=$SOURCE" \
+            --annotation "index:org.opencontainers.image.description=Wakewright parent: collects and stores wake word clips" \
+            --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+            --annotation "index:org.opencontainers.image.version=$VERSION" \
+            --annotation "index:org.opencontainers.image.revision=$SHA" \
+            $(printf "$IMAGE@sha256:%s " *)
+          digest=$(docker buildx imagetools inspect "$IMAGE:$short" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect "$IMAGE@$digest"
+          echo "Image: \`$IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Grype, on the published index. A release fails on any vulnerability
+      # of high or critical severity that has a fix available; `edge` only
+      # reports, so an upstream advisory does not stop main from publishing.
+      - name: Scan the image
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.index.outputs.digest }}
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: ${{ needs.meta.outputs.release }}
+          output-format: sarif
+
+      - name: Upload the scan to code scanning
+        if: ${{ !cancelled() && steps.scan.outputs.sarif != '' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: image
+
+      # GitHub artifact attestation (SLSA build provenance), signed with
+      # Sigstore under this workflow's identity and pushed to the registry
+      # next to the image. Verify with `gh attestation verify`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+      - name: Tag the image
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: |
+          tags=(-t "$IMAGE:edge")
+          if [ "$RELEASE" = true ]; then
+            tags+=(-t "$IMAGE:$VERSION")
+            if [ "$PRERELEASE" = false ]; then
+              tags+=(-t "$IMAGE:${VERSION%.*}" -t "$IMAGE:latest")
+            fi
+          fi
+          docker buildx imagetools create "${tags[@]}" "$IMAGE@$DIGEST"
+          printf 'Tags: %s\n' "${tags[*]}" | sed 's/-t //g' >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish / GitHub release
+    needs: [meta, image]
+    if: needs.meta.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # Create the tag and the release; the only job that writes contents.
+      contents: write
+      packages: read
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The release notes are the version's CHANGELOG.md section, followed
+      # by the image reference and how to verify it.
+      - name: Write the release notes and assets
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          awk -v v="$VERSION" '
+            $0 ~ "^## " { if (found) exit; if ($2 == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error::CHANGELOG.md has no section for $VERSION."
+            exit 1
+          fi
+          cat >> "$notes" <<EOF
+
+          ### Container image
+
+          \`\`\`sh
+          docker pull $IMAGE:$VERSION
+          # or by digest
+          docker pull $IMAGE@$DIGEST
+          # verify its build provenance
+          gh attestation verify oci://$IMAGE:$VERSION --repo $REPO \\
+            --signer-workflow $REPO/.github/workflows/publish.yml
+          \`\`\`
+          EOF
+          mkdir -p "$RUNNER_TEMP/assets"
+          for arch in amd64 arm64; do
+            docker buildx imagetools inspect "$IMAGE@$DIGEST" \
+              --format "{{ json (index .SBOM \"linux/$arch\").SPDX }}" \
+              > "$RUNNER_TEMP/assets/wakewright-$VERSION-linux-$arch.spdx.json"
+          done
+          ls -l "$RUNNER_TEMP/assets"
+
+      # Created as a draft with its assets, then published, so the release
+      # is complete before it becomes visible (and, with immutable releases,
+      # locked). Publishing creates the tag on this commit.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release create "v$VERSION" "$RUNNER_TEMP"/assets/* \
+            --draft --target "$SHA" --title "v$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          gh release edit "v$VERSION" --draft=false
+          gh release view "v$VERSION" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

@@ -7,19 +7,22 @@ and runs the project's tasks. Bun is the runtime, package manager, bundler, test
 runner, type checker (`bun check`) and formatter (`bun fmt`). Biome does
 linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling.md)).
 
-| Task             | What it runs                                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `mise run setup` | `bun install --frozen-lockfile`                                                                                          |
-| `mise run dev`   | `devtools/dev.ts`: the parent's dev entry with HMR on :8080 (data in `.dev-data/`) and fake devices on :23241 and :23242 |
-| `mise run build` | `bun run build`: the SPA into `dist/public`, the server into `dist/main.js`                                              |
-| `mise run check` | the checks below, in order                                                                                               |
-| `mise run e2e`   | Playwright: builds `dist/` and tests it, or tests `E2E_BASE_URL` when set                                                |
+| Task                         | What it runs                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `mise run setup`             | `bun install --frozen-lockfile`                                                                                          |
+| `mise run dev`               | `devtools/dev.ts`: the parent's dev entry with HMR on :8080 (data in `.dev-data/`) and fake devices on :23241 and :23242 |
+| `mise run build`             | `bun run build`: the SPA into `dist/public`, the server into `dist/main.js`                                              |
+| `mise run check`             | the checks below, in order                                                                                               |
+| `mise run e2e`               | Playwright: builds `dist/` and tests it, or tests `E2E_BASE_URL` when set                                                |
+| `mise run release <version>` | opens the release pull request ([RELEASING.md](RELEASING.md))                                                            |
 
 `mise run check`:
 
 1. `scripts/check-versions.ts`: the running Bun, `@types/bun` and every
    `oven/bun` base image match `mise.toml`; `typescript` matches the
-   TypeScript built into Bun, so editors and `bun check` agree.
+   TypeScript built into Bun, so editors and `bun check` agree; every
+   workspace package has the product version (`apps/parent/package.json`)
+   and `CHANGELOG.md`'s newest section is that version.
 2. `scripts/verify-lockfile-age.ts`: every entry in `bun.lock` is at least
    as old as `bunfig.toml`'s `minimumReleaseAge` (3 days). Bun enforces the
    age only when it resolves, not on frozen installs. The check needs the
@@ -83,6 +86,11 @@ every push to `main`:
 | `Image / build + E2E (arm64)` | the same on a native arm64 runner                                                                                                                             |
 | `Dependencies / review`       | pull requests only: fails if the pull request adds a dependency with a known advisory of moderate severity or worse                                           |
 | `CI OK`                       | passes only if every job above passed (or was skipped by its own condition); the one check required on `main`                                                 |
+
+On a push to `main`, after `CI OK` passes, the `Publish` jobs
+(`publish.yml`, called from `ci.yml`) push the multi-arch image as `edge`
+and, when the commit is a release, publish the release: see
+[RELEASING.md](RELEASING.md).
 
 CodeQL (GitHub's default setup, JavaScript/TypeScript and Actions) runs
 beside it on every pull request; the `main` ruleset blocks a merge on its

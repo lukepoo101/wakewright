@@ -10,7 +10,7 @@ on:
 
 # A newer push to a pull request supersedes the run before it. Runs on main
 # each get their own group, so none is cancelled or dropped while queued:
-# they save the caches every later run reads.
+# they save the caches every later run reads and publish the image.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -218,3 +218,23 @@ jobs:
               *) echo "::error::A required job finished with: $r"; exit 1 ;;
             esac
           done
+
+  # Pushes to main only, after every check above passed on that commit:
+  # publishes the `edge` image and, for a release commit, the release.
+  publish:
+    name: Publish
+    needs: ci-ok
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # One publish at a time, in order. A queued run that a newer push
+    # replaces is not lost work: the newer commit publishes `edge` and, if
+    # its version is still untagged, the release.
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: $/.github/workflows/publish.yml

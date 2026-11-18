@@ -5,6 +5,9 @@
 //                               base image in deploy/docker must match it.
 //   Bun's bundled TypeScript    is what `bun check` uses; the `typescript`
 //                               devDependency (what editors use) must match.
+//   apps/parent/package.json    is the product version. Every workspace
+//                               package and CHANGELOG.md's newest section
+//                               must match it.
 //
 // Usage: bun scripts/check-versions.ts      Exit 0 when all agree, 1 otherwise.
 import { readdirSync } from "node:fs";
@@ -46,9 +49,32 @@ if (typeof bun !== "string" || !/^\d+\.\d+\.\d+$/.test(bun)) {
     );
 }
 
+// The product version: apps/parent/package.json (the server reports it).
+// Every workspace package carries the same version, and CHANGELOG.md's
+// newest section is that version once anything has been released.
+// `mise run release` changes them together.
+const product = (await Bun.file(join(root, "apps", "parent", "package.json")).json()).version;
+const rootManifest = await Bun.file(join(root, "package.json")).json();
+for (const pattern of rootManifest.workspaces ?? []) {
+  for await (const file of new Bun.Glob(`${pattern}/package.json`).scan(root)) {
+    const { name, version } = await Bun.file(join(root, file)).json();
+    if (version !== product)
+      errors.push(`${file} (${name}) is version ${version}, apps/parent is ${product}`);
+  }
+}
+const changelog = await Bun.file(join(root, "CHANGELOG.md")).text();
+const newest = changelog.match(/^## (\S+)/m)?.[1];
+if (product === "0.0.0") {
+  if (newest) errors.push(`CHANGELOG.md has a ${newest} section, but the version is 0.0.0`);
+} else if (newest !== product) {
+  errors.push(`CHANGELOG.md's newest section is ${newest ?? "missing"}, the version is ${product}`);
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`check-versions: ${e}`);
   process.exitCode = 1;
 } else {
-  console.log(`check-versions: Bun ${bun} and TypeScript ${process.versions.typescript} agree`);
+  console.log(
+    `check-versions: Bun ${bun} and TypeScript ${process.versions.typescript} agree; version ${product}`,
+  );
 }

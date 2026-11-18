@@ -6,6 +6,9 @@
 # version equal to mise.toml's.
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS build
+# Include this stage in the image's SBOM: the runtime image holds one
+# bundled main.js, so the npm packages inside it are only visible here.
+ARG BUILDKIT_SBOM_SCAN_STAGE=true
 WORKDIR /src
 # Manifests first, so the dependency layer is reused until they change.
 COPY package.json bun.lock bunfig.toml ./
