@@ -117,7 +117,8 @@ pymicro-features) is published for both.
   is the product version (`pyproject.toml`, kept equal by
   `check-versions.ts` and set by `mise run release`), and `publish.yml`
   builds, scans, attests and tags `ghcr.io/lukepoo101/wakewright` and
-  `ghcr.io/lukepoo101/wakewright-worker` identically, with both images and
+  `ghcr.io/lukepoo101/wakewright-worker` identically (the moving tags only
+  once both images passed, so a release is never half tagged), with both images and
   their SBOMs in one GitHub release. As with Immich's ML image, accelerated
   variants would be tag suffixes later (`-cuda`); the CPU image has none.
   Unlike Immich, `main` rebuilds both images on every push rather than

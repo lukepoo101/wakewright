@@ -30,7 +30,8 @@ the `Publish` jobs
 2. merge each into one index tagged `sha-<short>`, scan it with Grype
    (a fixable high or critical vulnerability in either stops the release)
    and attest its build provenance,
-3. tag both `0.0.1`, `0.0` and `latest` (and `edge`),
+3. once both have passed, tag both `0.0.1`, `0.0` and `latest` (and
+   `edge`); if either fails, neither is tagged,
 4. create the `v0.0.1` tag and GitHub release, with the changelog section
    as its notes, both images' digests and the SPDX SBOMs of both attached.
 
