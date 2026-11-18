@@ -108,29 +108,55 @@
   grid-area: judges;
 }
 
-/* Score, engine and badge: separate grid cells on wider layouts, one line
-   of their own on a phone. */
+/* Device and engine, and score, judges and badge: separate grid cells on
+   wider layouts, a line each on a phone. */
+.where,
 .measure {
   display: contents;
 }
 
-/* Narrow (a phone): three lines. The time and kind; the device name with
-   the whole width to itself; then the score, its engine, what the judges
-   said and the clipped badge's icon (its name stays for screen readers and
-   in the tooltip). */
+/* The clipped badge shows only its icon where room is short (its name
+   stays for screen readers and in the tooltip). */
+.clippedLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Narrow (a phone): three lines. The time and kind; the device name and
+   its engine (a long name wraps rather than being cut short); then the
+   score, what the judges said and the clipped badge's icon. */
 @container (width < 36rem) {
   .row {
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
       "play time kind"
-      "play device device"
+      "play where where"
       "play measure measure";
     gap: var(--space-1) var(--space-3);
   }
 
-  .device {
+  .where {
+    grid-area: where;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    min-width: 0;
     color: var(--color-text-muted);
     font-size: var(--text-small);
+  }
+
+  .device {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .engine {
+    margin-left: auto;
+    white-space: nowrap;
   }
 
   .kind {
@@ -147,15 +173,6 @@
 
   .judges {
     margin-left: auto;
-  }
-
-  .clippedLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }
 
@@ -178,9 +195,17 @@
   .flags {
     justify-self: end;
   }
+
+  .clippedLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
 }
 
-/* Wide: one line per clip. The rows share the list's columns (subgrid), so
+/* Wide: one line per clip, the clipped badge as its icon. The rows share the list's columns (subgrid), so
    every column is as wide as its widest cell and nothing overlaps. */
 @container (width >= 60rem) {
   .list {
