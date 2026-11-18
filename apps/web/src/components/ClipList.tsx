@@ -70,15 +70,18 @@ export function ClipList({
             >
               <time dateTime={clip.capturedAt}>{shortDateTime(clip.capturedAt)}</time>
             </Link>
-            {showDevice && (
-              <span
-                className={styles.device}
-                title={`${clip.deviceName}${clip.deviceRemoved ? " (removed)" : ""}`}
-              >
-                {clip.deviceName}
-                {clip.deviceRemoved && <span className={styles.removed}> (removed)</span>}
-              </span>
-            )}
+            <span className={styles.where}>
+              {showDevice && (
+                <span
+                  className={styles.device}
+                  title={`${clip.deviceName}${clip.deviceRemoved ? " (removed)" : ""}`}
+                >
+                  {clip.deviceName}
+                  {clip.deviceRemoved && <span className={styles.removed}> (removed)</span>}
+                </span>
+              )}
+              <EngineName engine={clip.engine} className={styles.engine} />
+            </span>
             <span className={styles.kind}>
               <KindChip kind={clip.kind} />
             </span>
@@ -86,7 +89,6 @@ export function ClipList({
               <span className={styles.score}>
                 <ScoreBar score={clip.score} threshold={clip.threshold} />
               </span>
-              <EngineName engine={clip.engine} className={styles.engine} />
               <span className={styles.judges}>
                 {clip.judging.agreement !== "waiting" && <AgreementChip judging={clip.judging} />}
               </span>

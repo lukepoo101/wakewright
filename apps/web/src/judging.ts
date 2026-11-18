@@ -38,7 +38,7 @@ export function agreementShort(j: ClipJudging): string {
     case "waiting":
       return "Not judged";
     case "inconclusive":
-      return "Too few votes";
+      return votes === 1 ? "1 vote" : "No votes";
     case "agree_no":
       return `${j.no} of ${votes} no`;
     default:

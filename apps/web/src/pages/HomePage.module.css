@@ -235,9 +235,18 @@
   white-space: nowrap;
 }
 
+/* One column: what the judges found comes first, above the latest clips. */
 @media (max-width: 1023px) {
   .columns {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .side {
+    display: contents;
+  }
+
+  .judging {
+    order: -1;
   }
 }
 
@@ -249,6 +258,15 @@
 
   .tile {
     padding: var(--space-3) var(--space-4);
+  }
+
+  /* The rows have padding of their own; give the clips the width. */
+  .latest {
+    padding-inline: var(--space-2);
+  }
+
+  .latest .cardHead {
+    padding-inline: var(--space-2);
   }
 
   .step {

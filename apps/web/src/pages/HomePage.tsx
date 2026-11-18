@@ -114,7 +114,11 @@ export function HomePage() {
         </Card>
 
         <div className={styles.side}>
-          {judging.data && <JudgingCard status={judging.data} now={now} />}
+          {judging.data && (
+            <div className={styles.judging}>
+              <JudgingCard status={judging.data} now={now} />
+            </div>
+          )}
           <Card>
             <div className={styles.cardHead}>
               <h2>Devices</h2>
