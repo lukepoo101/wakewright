@@ -66,6 +66,8 @@ export function insertClip(
 export interface ClipFilter {
   deviceId?: string;
   reason?: "fired" | "near_miss";
+  /** The engine the clip reports, e.g. "vsWakeWord". */
+  engine?: string;
   /** Inclusive lower bound on captured_at (ISO). */
   from?: string;
   /** Exclusive upper bound on captured_at (ISO). */
@@ -86,6 +88,10 @@ function where(filter: ClipFilter): { sql: string; params: Record<string, string
   if (filter.reason) {
     parts.push("c.capture_reason = $reason");
     params.reason = filter.reason;
+  }
+  if (filter.engine) {
+    parts.push("c.engine = $engine");
+    params.engine = filter.engine;
   }
   if (filter.from) {
     parts.push("c.captured_at >= $from");
@@ -147,6 +153,14 @@ export function clipNeighbours(
     )
     .get(params);
   return { newer: newer?.id ?? null, older: older?.id ?? null };
+}
+
+/** Every engine any stored clip reports, for the engine filter. */
+export function clipEngines(db: Database): string[] {
+  return db
+    .query<{ engine: string }, []>("SELECT DISTINCT engine FROM clips ORDER BY engine")
+    .all()
+    .map((r) => r.engine);
 }
 
 export interface ClipSummary {

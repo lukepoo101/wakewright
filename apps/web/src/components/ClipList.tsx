@@ -3,11 +3,12 @@ import type { KeyboardEvent } from "react";
 import type { Clip, ClipSearch } from "../clips.ts";
 import { shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
-import { ClippedChip, KindChip, PlayButton, ScoreBar } from "./ClipBits.tsx";
+import { ClippedChip, EngineName, KindChip, PlayButton, ScoreBar } from "./ClipBits.tsx";
 import styles from "./ClipList.module.css";
 
 // A list of clips, newest first. Each row opens the clip; its play button
-// plays it in place. Keyboard: ↑/↓ move between rows, Space plays the
+// plays it in place. Every row names the engine beside the score, because
+// engines score on different scales. Keyboard: ↑/↓ move between rows, Space plays the
 // focused row, Enter opens it.
 
 export function ClipList({
@@ -68,7 +69,10 @@ export function ClipList({
               <time dateTime={clip.capturedAt}>{shortDateTime(clip.capturedAt)}</time>
             </Link>
             {showDevice && (
-              <span className={styles.device}>
+              <span
+                className={styles.device}
+                title={`${clip.deviceName}${clip.deviceRemoved ? " (removed)" : ""}`}
+              >
                 {clip.deviceName}
                 {clip.deviceRemoved && <span className={styles.removed}> (removed)</span>}
               </span>
@@ -76,11 +80,14 @@ export function ClipList({
             <span className={styles.kind}>
               <KindChip kind={clip.kind} />
             </span>
-            <span className={styles.score}>
-              <ScoreBar score={clip.score} threshold={clip.threshold} />
-            </span>
-            <span className={styles.flags}>
-              <ClippedChip clip={clip} labelClassName={styles.clippedLabel} />
+            <span className={styles.measure}>
+              <span className={styles.score}>
+                <ScoreBar score={clip.score} threshold={clip.threshold} />
+              </span>
+              <EngineName engine={clip.engine} className={styles.engine} />
+              <span className={styles.flags}>
+                <ClippedChip clip={clip} labelClassName={styles.clippedLabel} />
+              </span>
             </span>
           </li>
         ))}

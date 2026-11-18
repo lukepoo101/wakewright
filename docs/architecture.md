@@ -59,7 +59,7 @@ word clips, store them, and browse and play them.
   ([ADR 0011](adr/0011-collecting-clips.md),
   [ADR 0012](adr/0012-device-password-encryption.md)).
 - **Clips**: `/api/v1/clips` lists clips newest first with filters (device,
-  kind, time) and paging; one clip comes with its newer and older neighbours
+  kind, engine, time) and paging; one clip comes with its newer and older neighbours
   under the same filter, and its audio is served with `Range`, `ETag` and a
   private cache policy so the browser can seek. The SPA draws the waveform
   with wavesurfer.js from the WAV itself; lists play through one shared

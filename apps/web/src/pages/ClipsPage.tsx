@@ -11,7 +11,7 @@ import {
   Loading,
   PageHeader,
 } from "../components/ui.tsx";
-import { type ClipSearch, PAGE_SIZE, useClips } from "../clips.ts";
+import { type ClipSearch, PAGE_SIZE, useClipEngines, useClips } from "../clips.ts";
 import { useDevices } from "../devices.ts";
 import styles from "./ClipsPage.module.css";
 
@@ -19,7 +19,10 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
   const navigate = useNavigate();
   const clips = useClips(search);
   const devices = useDevices();
-  const filtered = Boolean(search.device || search.kind || search.from || search.to);
+  const engines = useClipEngines();
+  const filtered = Boolean(
+    search.device || search.kind || search.engine || search.from || search.to,
+  );
 
   const update = (change: Partial<ClipSearch>) =>
     navigate({ to: "/clips", search: { ...search, ...change, page: undefined }, replace: true });
@@ -65,6 +68,20 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
             <option value="">All kinds</option>
             <option value="fired">Wake words</option>
             <option value="near_miss">Near misses</option>
+          </select>
+        </label>
+        <label className={styles.filter}>
+          <span>Engine</span>
+          <select
+            value={search.engine ?? ""}
+            onChange={(e) => update({ engine: e.target.value || undefined })}
+          >
+            <option value="">All engines</option>
+            {engines.data?.engines.map((engine) => (
+              <option key={engine} value={engine}>
+                {engine}
+              </option>
+            ))}
           </select>
         </label>
         <label className={styles.filter}>

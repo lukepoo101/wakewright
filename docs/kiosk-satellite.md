@@ -44,6 +44,13 @@ not change anything on the device.
 
 ## What a clip shows
 
+- **Score and threshold** are the device's own record of the clip. Each
+  engine scores on its own scale: microWakeWord and openWakeWord report a
+  probability from 0 to 1, vsWakeWord a match score with thresholds around 10. So every clip names its engine, the Clips list can be filtered by
+  engine, and the score bar always shows the score against that clip's own
+  threshold: the mark in the middle is the threshold, and a score of twice
+  the threshold or more fills the bar. Bars of different engines compare
+  fairly; the numbers only within one engine.
 - **Device settings then** (engine, wake words, sensitivity, fine-tune) are
   shown only when Wakewright read them from the device within 5 minutes of
   the moment the clip was recorded, and they name the clip's own engine.
