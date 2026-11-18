@@ -7,7 +7,7 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.2.0-rc.1 - 2026-11-18
+## 0.2.0 - 2026-11-18
 
 Each worker now has its own token. A new **Workers** page lists every
 worker, whether it is connected, the judges it offers and may run, and what
@@ -46,7 +46,7 @@ gave it. Upgrade the parent and the worker together, as always. See
 
 - Give each worker its own token, managed on a new Workers page or declared in configuration by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/39
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.1.0...v0.2.0-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.1.0...v0.2.0
 
 ## 0.1.0 - 2026-11-18
 
