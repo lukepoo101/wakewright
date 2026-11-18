@@ -39,6 +39,19 @@ export function useSetPaused() {
   });
 }
 
+/**
+ * One device's state, for its status mark: collecting, paused, waiting for
+ * its first check, failing, or reachable but saving no clips because wake
+ * word diagnostics are off.
+ */
+export type DeviceState = "ok" | "paused" | "waiting" | "failing" | "diagnosticsOff";
+
+export function deviceState(device: Device, paused: boolean): DeviceState {
+  if (paused) return "paused";
+  if (device.status.health !== "ok") return device.status.health;
+  return device.reported?.diagnosticsEnabled === false ? "diagnosticsOff" : "ok";
+}
+
 /** The server's message, unless it only repeats the advice's title. */
 export function detailFor(code: string, message: string): string | null {
   const plain = (s: string) => s.toLowerCase().replace(/[.\s]+$/, "");

@@ -82,28 +82,8 @@
   align-items: center;
 }
 
-.dot {
+.mark {
   grid-area: dot;
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 50%;
-}
-
-.ok {
-  background: var(--color-ok);
-}
-
-.failing {
-  background: var(--color-error);
-}
-
-.waiting {
-  background: var(--color-border-strong);
-}
-
-.paused {
-  background: var(--color-warn);
-  border-radius: 2px;
 }
 
 .deviceName {

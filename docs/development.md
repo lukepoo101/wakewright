@@ -20,7 +20,9 @@ linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling
 a file changes; reload the page to see it. Hot module replacement is off,
 because Bun 1.4.4's dev bundler breaks TanStack Router under it. The fake
 devices hear a new synthetic clip every 45 and 70 seconds; add them in the UI
-as `127.0.0.1:23241` and `127.0.0.1:23242` with the password `dev`.
+as `127.0.0.1:23241` and `127.0.0.1:23242` with the password `dev`. The
+first reports vsWakeWord scores (threshold 10.5, some over twice that), the
+second microWakeWord probabilities (0–1), so both score scales show.
 
 `mise run check`:
 

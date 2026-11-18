@@ -8,6 +8,7 @@ import { Alert, buttonClass, Card, Loading, PageHeader, useTitle } from "../comp
 import { audioUrl, type Clip, type ClipSearch, kindLabel, useClip } from "../clips.ts";
 import { longDateTime, shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
+import { scoreSummary } from "../score.ts";
 import styles from "./ClipPage.module.css";
 
 // One clip: its waveform and playback, and everything the device reported
@@ -168,11 +169,7 @@ function Details({ clip: c }: { clip: Clip }) {
       <dd>
         <ScoreBar score={c.score} threshold={c.threshold} />
         <span className={styles.hint}>
-          {c.score !== null && c.threshold !== null
-            ? c.score >= c.threshold
-              ? "Over the threshold: the wake word fired."
-              : `Reached ${Math.round((c.score / c.threshold) * 100)}% of the threshold.`
-            : ""}
+          {c.score !== null && scoreSummary(c.score, c.threshold)}
         </span>
       </dd>
       <dt>Wake word</dt>

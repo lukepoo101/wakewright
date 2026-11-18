@@ -38,29 +38,9 @@
   overflow-wrap: anywhere;
 }
 
-.dot {
-  flex: none;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-top: 0.4rem;
-  border-radius: 50%;
-}
-
-.ok {
-  background: var(--color-ok);
-}
-
-.failing {
-  background: var(--color-error);
-}
-
-.waiting {
-  background: var(--color-border-strong);
-}
-
-.paused {
-  background: var(--color-warn);
-  border-radius: 2px;
+/* Level with the first line of the device's name. */
+.mark {
+  margin-top: 0.3rem;
 }
 
 .text_failing {
@@ -68,7 +48,8 @@
   font-weight: 600;
 }
 
-.text_paused {
+.text_paused,
+.text_diagnosticsOff {
   color: var(--color-warn);
   font-weight: 600;
 }

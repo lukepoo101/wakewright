@@ -46,7 +46,16 @@ export interface FakeKioskOptions {
   diagnostics?: boolean;
   /** Seed for the generated clips, so two fakes sound different. */
   seed?: number;
+  /** The wake word engine, which sets the score scale. Default vsWakeWord. */
+  engine?: Engine;
 }
+
+/**
+ * Engines report scores on their own scales: vsWakeWord a match score
+ * against a threshold around 10, microWakeWord a probability (0–1).
+ */
+export type Engine = "vsWakeWord" | "microWakeWord";
+const THRESHOLDS: Record<Engine, number> = { vsWakeWord: 10.5, microWakeWord: 0.6 };
 
 /** Faults to inject; change them at any time. */
 export interface Faults {
@@ -103,6 +112,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   const activations: Clip[] = [];
   const nearMisses: Clip[] = [];
   const seed = options.seed ?? 1;
+  const engine = options.engine ?? "vsWakeWord";
 
   function makeClip(at: number, nearMiss: boolean): Clip {
     counter++;
@@ -115,20 +125,26 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     };
     // Every seventh clip is loud enough to clip, as a close shout would be.
     const samples = synthesize(signal, counter % 7 === 0 ? 1.4 : 0.35);
-    const threshold = 0.6;
+    const threshold = THRESHOLDS[engine];
+    // A near miss reaches 75–95% of the threshold. A wake word clears it:
+    // a probability by up to the scale's top (1), a vsWakeWord score by up
+    // to 60%, and every fifth clip is a strong match at over twice the
+    // threshold, as a close, clear voice gives.
+    const top = engine === "microWakeWord" ? 1 : threshold * (counter % 5 === 0 ? 2.4 : 1.6);
     const score = nearMiss
       ? round(threshold * (0.75 + 0.2 * fraction(counter)))
-      : round(threshold + (1 - threshold) * fraction(counter * 3));
+      : round(threshold + (top - threshold) * (counter % 5 === 0 ? 0.9 : fraction(counter * 3)));
     const entry: Activation = {
       id: String(id),
       ...(nearMiss ? { nearMiss: true } : {}),
       at: new Date(id).toISOString(),
-      wakeWord: "alexa",
-      engine: "vsWakeWord",
+      wakeWord: engine === "microWakeWord" ? "okay_nabu" : "alexa",
+      engine,
       score,
       threshold,
-      decoded: nearMiss ? "ə l ɛ s ə" : "ə l ɛ k s ə",
-      editDistance: nearMiss ? 1 : 0,
+      ...(engine === "vsWakeWord"
+        ? { decoded: nearMiss ? "ə l ɛ s ə" : "ə l ɛ k s ə", editDistance: nearMiss ? 1 : 0 }
+        : { trigger: "immediate" }),
       durationMs: 3000,
       ...levels(samples),
     };
@@ -142,7 +158,8 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   }
 
   // Older clips first, so ids rise with time; every third is a near miss.
-  const initial = options.initialClips ?? 6;
+  // With diagnostics off the device keeps none.
+  const initial = diagnostics ? (options.initialClips ?? 6) : 0;
   for (let i = initial; i >= 1; i--) add(makeClip(startedAt - i * 60_000, i % 3 === 0));
 
   const app = new Hono();
@@ -189,7 +206,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     await next();
   });
 
-  app.get("/api/settings", (c) => c.json(settings(diagnostics) satisfies SettingsResponse));
+  app.get("/api/settings", (c) => c.json(settings(diagnostics, engine) satisfies SettingsResponse));
 
   app.post("/api/commands/getWakeWordActivations", (c) => {
     if (faults.malformedList) return c.json({ ok: true, data: { activations: "nope" } });
@@ -291,7 +308,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
 
 // The few settings Wakewright reads, in the device's shape, plus one it
 // does not, as the real list has hundreds.
-function settings(diagnostics: boolean): SettingsResponse {
+function settings(diagnostics: boolean, engine: Engine): SettingsResponse {
   const entries: SettingEntry[] = [
     {
       key: WakeSettingKeys.diagnostics,
@@ -303,7 +320,7 @@ function settings(diagnostics: boolean): SettingsResponse {
       key: WakeSettingKeys.engine,
       type: "select",
       title: "Wake word engine",
-      value: "vswakeword",
+      value: engine.toLowerCase(),
       options: ["vswakeword", "microwakeword", "openwakeword"],
       optionLabels: {
         vswakeword: "vsWakeWord",
@@ -311,7 +328,11 @@ function settings(diagnostics: boolean): SettingsResponse {
         openwakeword: "openWakeWord",
       },
     },
-    { key: WakeSettingKeys.wakeWords, type: "string", value: '["alexa"]' },
+    {
+      key: WakeSettingKeys.wakeWords,
+      type: "string",
+      value: engine === "microWakeWord" ? '["okay_nabu"]' : '["alexa"]',
+    },
     {
       key: WakeSettingKeys.sensitivity,
       type: "select",
