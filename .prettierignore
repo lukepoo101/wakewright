@@ -1,0 +1,3 @@
+# bun fmt reads this file. apps/worker is Python: ruff formats it, and its
+# TOML (pyproject.toml, uv.lock) is written by uv.
+apps/worker/

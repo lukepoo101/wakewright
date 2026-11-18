@@ -1,0 +1,9 @@
+# The worker image's build context (BuildKit reads <Dockerfile>.dockerignore
+# in place of the root .dockerignore): only what worker.Dockerfile copies.
+**
+!LICENSE
+!NOTICE
+!apps/worker/pyproject.toml
+!apps/worker/uv.lock
+!apps/worker/src/**
+**/__pycache__

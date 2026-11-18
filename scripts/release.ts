@@ -66,6 +66,23 @@ export function insert(changelog: string, version: string, newSection: string): 
     .replace(/\n{3,}/g, "\n\n");
 }
 
+// The worker's Python version is PEP 440, which spells 0.1.0-rc.1 as
+// 0.1.0rc1. Only alpha, beta and rc pre-releases have a PEP 440 form.
+export function pythonVersion(version: string): string {
+  const m = version.match(/^(\d+\.\d+\.\d+)(?:-(alpha|a|beta|b|rc)\.?(\d+))?$/);
+  if (!m) throw new Error(`${version} has no PEP 440 form: use X.Y.Z or X.Y.Z-rc.N`);
+  const tag = { alpha: "a", a: "a", beta: "b", b: "b", rc: "rc" }[m[2] ?? ""] ?? "";
+  return `${m[1]}${tag}${m[3] ?? ""}`;
+}
+
+// The `[project]` version line of apps/worker/pyproject.toml.
+export function setPythonVersion(pyproject: string, version: string): string {
+  const next = pyproject.replace(/^version = ".*"$/m, `version = "${pythonVersion(version)}"`);
+  if (next === pyproject && !pyproject.includes(`version = "${pythonVersion(version)}"`))
+    throw new Error("apps/worker/pyproject.toml has no version line");
+  return next;
+}
+
 async function main(argv: string[]) {
   const dryRun = argv.includes("--dry-run");
   const version = argv.find((a) => !a.startsWith("--"));
@@ -83,6 +100,7 @@ async function main(argv: string[]) {
     console.error(`release: ${newer} already exists; pick a version above it`);
     process.exit(1);
   }
+  pythonVersion(version); // fails early for a pre-release Python cannot spell
   const previous = previousTag(version, tags);
   if (!previous) {
     console.error("release: no earlier tag to start the notes from (v0.0.0 marks the start)");
@@ -111,9 +129,15 @@ async function main(argv: string[]) {
         );
       }
     }
+    // The worker is released with the same version: its pyproject.toml, and
+    // uv.lock's entry for it (`uv lock` changes only that line).
+    const pyproject = join(dir, "apps", "worker", "pyproject.toml");
+    await Bun.write(pyproject, setPythonVersion(await Bun.file(pyproject).text(), version));
+    await $`uv lock`.cwd(join(dir, "apps", "worker")).quiet();
     // Updates bun.lock's workspace versions and installs, so the pre-push
     // hook (`mise run check`) can run in this worktree.
     await $`bun install`.cwd(dir).quiet();
+    await $`uv sync --frozen`.cwd(join(dir, "apps", "worker")).quiet();
     const changelog = join(dir, "CHANGELOG.md");
     await Bun.write(changelog, insert(await Bun.file(changelog).text(), version, newSection));
     await $`bun fmt CHANGELOG.md`.cwd(dir).quiet();

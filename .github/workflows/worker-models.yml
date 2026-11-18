@@ -1,0 +1,118 @@
+name: Worker models
+
+# The worker's real models: downloaded (about 2.5 GB, from a cache after the
+# first run), loaded and run on generated audio with no speech in it, from
+# source (`mise run worker-models-test`) and inside the worker image
+# (`wakewright-worker self-test`). Pull request CI never downloads a model,
+# so this runs weekly, by hand, and on pull requests that change a judge,
+# the model pins or the worker's dependencies. It is not a required check.
+on:
+  schedule:
+    - cron: "41 5 * * 2"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/worker/src/wakewright_worker/judges/**
+      - apps/worker/src/wakewright_worker/models.py
+      - apps/worker/uv.lock
+      - apps/worker/tests/test_real_models.py
+      - deploy/docker/worker.Dockerfile
+      - .github/workflows/worker-models.yml
+
+permissions: {}
+
+concurrency:
+  group: worker-models-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_COLOR: "1"
+  MISE_VERSION: "2026.10.21"
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
+jobs:
+  models:
+    name: Worker / real models
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      IMAGE: wakewright-worker:models
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise, Python and uv
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install_args: python uv
+          cache_key_prefix: mise-python
+          cache_save: false
+
+      - name: Locate the caches
+        run: |
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "WAKEWRIGHT_WORKER__CACHE_DIR=$RUNNER_TEMP/models" >> "$GITHUB_ENV"
+
+      - name: Restore uv packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/worker/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
+
+      # Keyed on the files that pin the models: a new pin downloads afresh,
+      # and the downloader verifies every file's SHA-256 either way.
+      - name: Restore the models
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/models
+          key: worker-models-${{ hashFiles('apps/worker/src/wakewright_worker/judges/*.py') }}
+          restore-keys: worker-models-
+
+      - name: Install dependencies
+        run: uv sync --frozen --project apps/worker
+
+      - name: Download the models
+        working-directory: apps/worker
+        run: uv run --frozen wakewright-worker download-models
+
+      - name: Save the models
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/models
+          key: worker-models-${{ hashFiles('apps/worker/src/wakewright_worker/judges/*.py') }}
+
+      - name: Test the real models from source
+        run: mise run worker-models-test
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
+
+      - name: Build the worker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/worker.Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=worker-amd64
+
+      # The same check inside the image, on the cached models, timed from
+      # container start: model loading is the worker's cold start once its
+      # cache is warm.
+      - name: Self-test inside the image
+        run: |
+          start=$(date +%s.%N)
+          docker run --rm --read-only --tmpfs /tmp --user "$(id -u)" \
+            -v "$WAKEWRIGHT_WORKER__CACHE_DIR:/cache" "$IMAGE" self-test
+          printf 'Self-test in the image, from container start: %.1f s\n' \
+            "$(echo "$(date +%s.%N) - $start" | bc)" | tee -a "$GITHUB_STEP_SUMMARY"

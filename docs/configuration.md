@@ -67,6 +67,8 @@ each worker the same token. Workers connect to the parent, never the other
 way round, and the token opens only the worker API (`/api/worker/v1`), not
 the web UI or its API; sign-in settings do not affect it. Changing the
 token disconnects workers until they have the new one. See
+[worker.md](worker.md) to run Wakewright's worker (its own
+`WAKEWRIGHT_WORKER__*` settings are listed there) and
 [workers.md](workers.md) for the protocol.
 
 ## The secret key

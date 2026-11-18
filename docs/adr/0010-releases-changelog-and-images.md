@@ -1,6 +1,6 @@
 # 0010 Releases, changelog and published images
 
-- Status: accepted
+- Status: accepted; amended by [0017](0017-the-worker.md)
 - Date: 2026-11-18
 
 ## Context

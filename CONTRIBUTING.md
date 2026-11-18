@@ -15,7 +15,7 @@ By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 Install [mise](https://mise.jdx.dev), then:
 
 ```sh
-mise install       # the Bun version pinned in mise.toml
+mise install       # the Bun, Python and uv versions pinned in mise.toml
 mise run setup     # install dependencies from bun.lock
 mise run dev       # parent, rebuilt on change, + two fake Kiosk Satellite devices
 ```
@@ -30,9 +30,10 @@ Never bypass it (`--no-verify`); fix what it reports.
 
 ## Checks
 
-`mise run check` runs everything CI checks except the image build:
+`mise run check` runs everything CI checks except the image builds:
 tool-version drift, the lockfile release-age policy, `bun fmt --check`,
-Biome lint, `bun check` (types) and `bun test`. `mise run e2e` runs the
+Biome lint, `bun check` (types) and `bun test`, and for the Python worker
+ruff, pyright, pytest and the same licence and release-age checks. `mise run e2e` runs the
 Playwright smoke test against the production build. Run `bun fmt` to fix
 formatting. See [docs/development.md](docs/development.md) for what each
 step does and how CI runs them.

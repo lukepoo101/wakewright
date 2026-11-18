@@ -23,10 +23,54 @@ env:
   MISE_VERSION: "2026.10.21"
 
 jobs:
-  check:
-    name: Check / mise run check
+  # Which parts a pull request touches, so a change to the parent does not
+  # wait for the worker's jobs and the other way round. Pushes to main run
+  # everything (they write the caches and publish both images). A job that
+  # is skipped here still counts as passed in `CI OK`.
+  changes:
+    name: Changes
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      bun: ${{ steps.paths.outputs.bun }}
+      worker: ${{ steps.paths.outputs.worker }}
+    steps:
+      - name: Decide which jobs to run
+        id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            printf 'bun=true\nworker=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          printf '%s\n' "$files"
+          # Files only the worker uses. Anything else (docs, workflows,
+          # mise.toml, scripts) runs the Bun jobs too.
+          worker_only='^(apps/worker/|deploy/docker/worker\.Dockerfile|\.github/workflows/worker-models\.yml$)'
+          # Files the worker's jobs depend on.
+          worker_paths='^(apps/worker/|deploy/docker/worker\.Dockerfile|docs/api/worker-v1\.openapi\.json$|devtools/worker-integration\.ts$|mise\.toml$|\.github/workflows/(ci|publish)\.yml$)'
+          bun=false
+          worker=false
+          # GitHub lists at most 3000 files; past that, run everything.
+          if [ "$(wc -l <<< "$files")" -ge 3000 ]; then bun=true; worker=true; fi
+          if grep -qvE "$worker_only" <<< "$files"; then bun=true; fi
+          if grep -qE "$worker_paths" <<< "$files"; then worker=true; fi
+          printf 'bun=%s\nworker=%s\n' "$bun" "$worker" | tee -a "$GITHUB_OUTPUT"
+
+  # Checks over the whole repository, on every change: tool versions,
+  # workflows, Dockerfiles and the Renovate config. Needs no dependencies.
+  check-repo:
+    name: Check / repo
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -41,6 +85,37 @@ jobs:
         uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: ${{ env.MISE_VERSION }}
+          install_args: bun actionlint hadolint shellcheck zizmor
+          cache_key_prefix: mise-repo
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      # The read-only token lets zizmor run its online audits (impostor
+      # commits, known-vulnerable actions).
+      - name: Run checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise run check:repo
+
+  check:
+    name: Check / Bun
+    needs: changes
+    if: needs.changes.outputs.bun == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise and Bun
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install_args: bun
+          cache_key_prefix: mise-bun
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Locate the Bun package cache
@@ -55,7 +130,7 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: mise run setup
+        run: bun install --frozen-lockfile
 
       - name: Save Bun packages
         if: github.ref == 'refs/heads/main'
@@ -64,17 +139,123 @@ jobs:
           path: ${{ steps.bun-cache.outputs.dir }}
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      # See `mise tasks info check` or docs/development.md for the list.
+      # See `mise tasks info check:bun` or docs/development.md for the list.
       # Exit 2 from the lockfile-age step means the registry could not be
-      # reached: not a pass, re-run the job. The read-only token lets zizmor
-      # run its online audits (impostor commits, known-vulnerable actions).
+      # reached: not a pass, re-run the job.
       - name: Run checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: mise run check
+        run: mise run check:bun
+
+  # The worker (apps/worker): lock, ruff, pyright, pytest (no model is
+  # downloaded: the real-model tests are in worker-models.yml), licences.
+  check-worker:
+    name: Check / worker
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise, Python and uv
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install_args: python uv
+          cache_key_prefix: mise-python
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Locate the uv cache
+        run: echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+
+      - name: Restore uv packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/worker/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: uv sync --frozen --project apps/worker
+
+      # Keeps only what cannot be rebuilt quickly, as uv advises for CI.
+      - name: Prune the uv cache
+        if: github.ref == 'refs/heads/main'
+        run: uv cache prune --ci
+
+      - name: Save uv packages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/worker/uv.lock') }}
+
+      # See `mise tasks info check:worker` or docs/development.md.
+      - name: Run checks
+        run: mise run check:worker
+
+  # The parent and the real worker loop together, from source, with the
+  # worker's fake judges: claim, download, judge, post and the UI's counts,
+  # without downloading a model (`mise run integration`).
+  integration:
+    name: Integration / parent + worker
+    needs: changes
+    if: needs.changes.outputs.bun == 'true' || needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up mise, Bun, Python and uv
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          install_args: bun python uv
+          cache_key_prefix: mise-integration
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Locate the caches
+        id: caches
+        run: |
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "bun=$(bun pm cache)" >> "$GITHUB_OUTPUT"
+
+      # Read only: the check jobs save these caches on main.
+      - name: Restore Bun packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.caches.outputs.bun }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Restore uv packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/worker/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          uv sync --frozen --no-dev --project apps/worker
+
+      - name: Run the parent and the worker together
+        run: mise run integration
 
   image:
     name: Image / build + E2E (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.bun == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -171,7 +352,7 @@ jobs:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
-        run: mise run setup
+        run: bun install --frozen-lockfile
 
       # Only the headless shell: the runner images already have Chrome's
       # system libraries, so no apt step is needed; a missing library fails
@@ -202,6 +383,105 @@ jobs:
           path: test-results
           retention-days: 7
 
+  # The worker image, natively on both architectures: it builds, holds no
+  # model, its native libraries load, and it starts, downloads a judge's
+  # model, retries an unreachable parent and stops cleanly on SIGTERM.
+  worker-image:
+    name: Worker image / build + smoke (${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      IMAGE: wakewright-worker:ci
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
+
+      - name: Build the worker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/worker.Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=worker-${{ matrix.arch }}
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope=worker-{0}', matrix.arch) || '' }}
+
+      # Models are downloaded at first use, never shipped (the openWakeWord
+      # ones are CC BY-NC-SA 4.0). onnx-asr's own feature extractors are
+      # small .onnx files and are allowed.
+      - name: Check the image holds no model
+        run: |
+          id=$(docker create "$IMAGE")
+          files=$(docker export "$id" | tar -tv)
+          docker rm "$id" > /dev/null
+          if awk '($3 > 5000000 && $6 ~ /\.(onnx|data|tflite)$/) || $6 ~ /\.tflite$/' <<< "$files" | grep .; then
+            echo "::error::The worker image contains model files (listed above)."
+            exit 1
+          fi
+          docker image ls "$IMAGE" --format 'Image size: {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the native libraries load
+        run: |
+          docker run --rm "$IMAGE" --version
+          docker run --rm --read-only --entrypoint python "$IMAGE" -c '
+          import onnxruntime, onnx_asr, pymicro_features
+          from pymicro_wakeword.microwakeword import _MODULE_LIB_DIR
+          from pymicro_wakeword.wakeword import TfLiteWakeWord
+          TfLiteWakeWord(next(_MODULE_LIB_DIR.glob("*tensorflowlite_c*")))
+          print("onnxruntime", onnxruntime.__version__, onnxruntime.get_available_providers())
+          '
+
+      # With only microWakeWord (a few hundred kB to download) against a
+      # parent that is not there: the loop must start, report the parent as
+      # unreachable, and stop within a second of SIGTERM.
+      - name: Start, retry and stop
+        run: |
+          start=$(date +%s.%N)
+          docker run -d --name worker --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -e WAKEWRIGHT_WORKER__PARENT_URL=http://127.0.0.1:9 \
+            -e WAKEWRIGHT_WORKER__TOKEN=not-a-secret \
+            -e WAKEWRIGHT_WORKER__JUDGES=microwakeword \
+            "$IMAGE"
+          for _ in $(seq 60); do
+            docker logs worker 2>&1 | grep -q '"cannot claim jobs"' && break
+            sleep 0.5
+          done
+          ready=$(date +%s.%N)
+          docker logs worker 2>&1 | grep -q '"judge ready"'
+          docker logs worker 2>&1 | grep -q '"cannot claim jobs"'
+          docker exec worker wakewright-worker healthcheck
+          docker stop -t 10 worker
+          stopped=$(date +%s.%N)
+          [ "$(docker inspect -f '{{.State.ExitCode}}' worker)" = 0 ]
+          printf 'Start to first claim (with a model download): %.1f s; stop: %.1f s\n' \
+            "$(echo "$ready - $start" | bc)" "$(echo "$stopped - $ready" | bc)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Show the container log
+        if: always()
+        run: docker logs worker || true
+
   # Fails a pull request that adds a dependency with a known vulnerability
   # of moderate severity or worse. It compares the pull request's lockfile
   # with its base, so an advisory published today against a dependency main
@@ -222,11 +502,22 @@ jobs:
           comment-summary-in-pr: never
 
   # The one check to require on main: it fails unless every job above
-  # passed or was skipped by its own `if` (dependency review on pushes).
+  # passed or was skipped by its own `if` (dependency review on pushes, the
+  # Bun or worker jobs on a pull request that does not touch them).
   ci-ok:
     name: CI OK
     if: always()
-    needs: [check, image, dependency-review]
+    needs:
+      [
+        changes,
+        check-repo,
+        check,
+        check-worker,
+        integration,
+        image,
+        worker-image,
+        dependency-review,
+      ]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

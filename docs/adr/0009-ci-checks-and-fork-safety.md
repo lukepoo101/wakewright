@@ -1,6 +1,6 @@
 # 0009 CI checks, fork safety and speed
 
-- Status: accepted
+- Status: accepted; amended by [0017](0017-the-worker.md)
 - Date: 2026-11-17
 
 ## Context

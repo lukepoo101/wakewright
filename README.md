@@ -41,8 +41,10 @@ changes its settings or installs anything on it.
 ```
 
 The **parent** is one TypeScript process on [Bun](https://bun.com): a
-[Hono](https://hono.dev) API, the React SPA it serves, and SQLite. Python
-**workers** for judging and training come in later versions. See
+[Hono](https://hono.dev) API, the React SPA it serves, and SQLite. The
+**worker** is a separate Python process that judges clips with
+openWakeWord, microWakeWord and speech to text and needs no open port
+([docs/worker.md](docs/worker.md)); training comes in later versions. See
 [docs/architecture.md](docs/architecture.md), and
 [docs/design/](docs/design/) for where the project is going and why.
 

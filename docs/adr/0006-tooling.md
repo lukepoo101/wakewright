@@ -1,6 +1,6 @@
 # 0006 Tooling: Bun, Biome for lint, mise tasks
 
-- Status: accepted
+- Status: accepted; amended by [0017](0017-the-worker.md)
 - Date: 2026-11-17
 
 ## Context
@@ -12,7 +12,7 @@ runs what CI runs, and reproducible pins with a single source of truth each.
 
 | Need                       | Tool                                                                                                                                                                         |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Toolchain pins and tasks   | **mise** (`mise.toml`): installs Bun; `setup`, `dev`, `build`, `check`, `e2e`. Python and uv join it when workers arrive                                                     |
+| Toolchain pins and tasks   | **mise** (`mise.toml`): installs Bun, Python and uv; `setup`, `dev`, `build`, `check`, `e2e` ([0017](0017-the-worker.md))                                                    |
 | Format                     | `bun fmt` (Prettier-compatible), width 100 in `bunfig.toml`                                                                                                                  |
 | Types                      | `bun check` (the TypeScript 7 built into Bun)                                                                                                                                |
 | Lint                       | **Biome**, lint only (formatter and assist off)                                                                                                                              |

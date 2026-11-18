@@ -16,8 +16,8 @@ minimumReleaseAge = 259200
 
 [test]
 # Playwright owns tests/e2e (`mise run e2e`); `bun test` would otherwise pick
-# up its *.spec.ts files.
-pathIgnorePatterns = ["tests/e2e/**"]
+# up its *.spec.ts files. apps/worker is Python, tested by pytest.
+pathIgnorePatterns = ["tests/e2e/**", "apps/worker/**"]
 
 [fmt]
 # `bun fmt` is Prettier-compatible; Prettier's defaults otherwise.

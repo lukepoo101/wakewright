@@ -1,4 +1,10 @@
 node_modules/
+
+# The worker's virtual environment and tool caches (apps/worker).
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
 dist/
 coverage/
 
