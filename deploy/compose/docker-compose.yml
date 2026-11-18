@@ -9,8 +9,8 @@
 name: wakewright
 services:
   wakewright:
-    # `edge` is built from every merge to main. Pin a release tag once one exists.
-    image: ghcr.io/lukepoo101/wakewright:edge
+    # A release tag; `edge` is built from every merge to main, for testing.
+    image: ghcr.io/lukepoo101/wakewright:0.0.1
     restart: unless-stopped
     ports: ["8080:8080"]
     read_only: true

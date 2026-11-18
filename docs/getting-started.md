@@ -5,8 +5,10 @@ data and must be able to reach your Kiosk Satellite devices on your
 network (port 2324 by default). Everything it collects stays in that
 volume; see [privacy.md](privacy.md).
 
-The image is `ghcr.io/lukepoo101/wakewright`, for amd64 and arm64. Until
-the first release, `edge` is built from every merge to `main`.
+The image is `ghcr.io/lukepoo101/wakewright`, for amd64 and arm64. Use a
+release tag: `0.0.1` (also `0.0` and `latest`). `edge` is built from every
+merge to `main` and is for testing. To pin the exact image, and check who
+built it, see [verify an image](RELEASING.md#verify-an-image).
 
 | What         | Value                                                                                                    |
 | ------------ | -------------------------------------------------------------------------------------------------------- |
@@ -25,7 +27,7 @@ docker volume create wakewright-data
 docker run -d --name wakewright --restart unless-stopped \
   -p 8080:8080 -v wakewright-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
-  ghcr.io/lukepoo101/wakewright:edge
+  ghcr.io/lukepoo101/wakewright:0.0.1
 ```
 
 Open `http://<host>:8080`. The first browser to open a new instance is

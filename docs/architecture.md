@@ -43,7 +43,7 @@ word clips, store them, and browse and play them.
 - **Sign-in**: one local admin account (`Bun.password`, argon2id), created
   in first-run setup or from configuration, with server-side sessions in an
   `HttpOnly`, `SameSite=Lax` cookie, a same-origin check on changes and a
-  throttled login ([ADR 0009](adr/0009-admin-account-and-sessions.md)). The
+  throttled login ([ADR 0013](adr/0013-admin-account-and-sessions.md)). The
   SPA shows setup or sign-in in place of every screen until it has a session.
 - **Collection**: the collector (`ingest.ts`) polls each device through a
   `Source` (`source.ts`; the Kiosk Satellite adapter is in `kiosk/`), every
@@ -128,8 +128,8 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0006 [Tooling: Bun, Biome for lint, mise tasks](adr/0006-tooling.md)
 - 0007 [No telemetry](adr/0007-no-telemetry.md)
 - 0008 [Read-only device access](adr/0008-read-only-device-access.md)
-- 0009 [One local admin account with server-side sessions](adr/0009-admin-account-and-sessions.md)
 - 0009 [CI checks, fork safety and speed](adr/0009-ci-checks-and-fork-safety.md)
 - 0010 [Releases, changelog and published images](adr/0010-releases-changelog-and-images.md)
 - 0011 [Collecting clips: a Source interface and an idempotent poller](adr/0011-collecting-clips.md)
 - 0012 [Device passwords encrypted with an instance key](adr/0012-device-password-encryption.md)
+- 0013 [One local admin account with server-side sessions](adr/0013-admin-account-and-sessions.md)

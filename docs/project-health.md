@@ -25,8 +25,9 @@ would check by habit is a check instead.
       Dependabot alerts on.
 - [x] **Daily dependency health**: `bun audit` of `main` and a Grype scan of
       the newest published image, reported in one issue that closes itself.
-- [x] **Publishing**: every merge to `main` publishes the `edge` image
-      (amd64 and arm64) with an SBOM and a signed provenance attestation.
+- [x] **Publishing**: every merge to `main` publishes the `edge` image,
+      and every release its version tags (amd64 and arm64), with SBOMs and
+      a signed provenance attestation.
 - [x] **Releases**: `mise run release X.Y.Z` opens the release pull request;
       merging it tags, releases and publishes ([RELEASING.md](RELEASING.md)).
       Releases are immutable.

@@ -1,4 +1,4 @@
-# 0009 One local admin account with server-side sessions
+# 0013 One local admin account with server-side sessions
 
 - Status: accepted
 - Date: 2026-11-18
