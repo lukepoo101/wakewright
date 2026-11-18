@@ -1,14 +1,19 @@
 """What cloud speech-to-text types share: one HTTP upload and its errors.
 
 `upload()` posts the clip as a multipart WAV and turns every way it can
-fail into the right outcome:
+fail into the right outcome. The rule: an abstention is stored only when
+the fault can be this clip; anything about the account, the settings or
+the service pauses the judge instead, so no clip is written off for it.
 
 - `TemporaryFailure` when the failure says nothing about this clip: a
-  refused key (auth), rate limits, a used-up quota, timeouts and network
-  errors, a 5xx, a 404 (wrong address or model) or a setting the service
-  refuses. The parent pauses the judge and tries the clip again later.
-- `CannotTranscribe` (an abstention for this clip) for any other 4xx: the
-  service would not take this clip.
+  refused key (auth), rate limits, a used-up quota or credit (any 402, and
+  quota, billing or credit wording with any other 4xx), timeouts and
+  network errors (also 408 and 425), a 5xx, a 404 (wrong address or
+  model), a setting the service refuses, and every 4xx other than 400, 413
+  and 422. The parent pauses the judge and tries the clip again later; a
+  clip that keeps failing while others work is given up on there.
+- `CannotTranscribe` (an abstention for this clip) for 400, 413 or 422
+  without such wording: the service would not take this clip.
 
 Messages never hold the API key: for 401 and 403 the service's text is left
 out (it can quote part of the key), and elsewhere it is cut short and
@@ -28,7 +33,16 @@ from wakewright_worker.audio import Clip, write_wav
 from wakewright_worker.judges import TemporaryFailure
 
 _KEYLIKE = re.compile(r"\b(?:sk|gsk|xi|key|api)[-_][A-Za-z0-9*._-]{6,}", re.IGNORECASE)
-_QUOTA = re.compile(r"quota|billing|credit|exceeded your|insufficient", re.IGNORECASE)
+# Out of quota, credit or money, in the wording providers use (OpenAI's
+# insufficient_quota, ElevenLabs' quota_exceeded, Google's RESOURCE_EXHAUSTED,
+# "credits are depleted", "payment required").
+_QUOTA = re.compile(
+    r"quota|billing|credits?\b|prepa(?:y|id)|payment|resource[_ ]exhausted|exceeded your"
+    r"|insufficient[_ ](?:quota|credits?|funds|balance)",
+    re.IGNORECASE,
+)
+# The 4xx statuses that can be about the clip itself; any other is not.
+_CLIP_STATUSES = frozenset({400, 413, 422})
 
 
 class CannotTranscribe(Exception):
@@ -121,9 +135,11 @@ def fail(r: httpx.Response, key: str) -> None:
     status = r.status_code
     said = message(r, key)
     suffix = f": {said}" if said and status not in (401, 403) else ""
-    if status in (401, 403, 429) and _QUOTA.search(said):
+    # The whole body is searched (a provider's status code can sit outside
+    # the message, or past the cut); only `said` is ever shown.
+    if status == 402 or (status < 500 and (_QUOTA.search(said) or _QUOTA.search(r.text))):
         raise TemporaryFailure(
-            f"quota used up (HTTP {status})", reason="quota", retry_after=retry_after(r)
+            f"quota used up (HTTP {status}){suffix}", reason="quota", retry_after=retry_after(r)
         )
     if status in (401, 403):
         raise TemporaryFailure(f"invalid API key (HTTP {status})", reason="auth")
@@ -139,6 +155,16 @@ def fail(r: httpx.Response, key: str) -> None:
             reason="server",
             retry_after=retry_after(r),
         )
+    if status in (408, 425):
+        raise TemporaryFailure(
+            f"the service did not take the request in time (HTTP {status}){suffix}",
+            reason="network",
+            retry_after=retry_after(r),
+        )
+    if status not in _CLIP_STATUSES:
+        # 405, 409, 410, 415, 423, 451 and the like: the service or the
+        # account, not the clip.
+        raise TemporaryFailure(f"the service refused the request (HTTP {status}){suffix}")
     if re.search(r"\bmodel|\blanguage", said, re.IGNORECASE):
         # A setting is wrong, not the clip: pause until the judge is fixed.
         raise TemporaryFailure(f"the service refused a setting (HTTP {status}){suffix}")
