@@ -45,6 +45,23 @@ describe("fake Kiosk Satellite", () => {
     expect((await wrong()).status).toBe(429);
   });
 
+  test("scores use the engine's scale, some well over the threshold", async () => {
+    const vs = createFakeKiosk({ now: () => NOW, initialClips: 10 });
+    const vsData = await list(vs, await login(vs));
+    const vsClips = [...vsData.activations, ...vsData.nearMisses];
+    expect(vsClips.every((a) => a.engine === "vsWakeWord" && a.threshold === 10.5)).toBe(true);
+    for (const a of vsData.activations) expect(a.score).toBeGreaterThanOrEqual(10.5);
+    for (const a of vsData.nearMisses) expect(a.score).toBeLessThan(10.5);
+    expect(vsData.activations.some((a) => (a.score ?? 0) > 2 * 10.5)).toBe(true);
+
+    const micro = createFakeKiosk({ now: () => NOW, engine: "microWakeWord" });
+    const microData = await list(micro, await login(micro));
+    for (const a of [...microData.activations, ...microData.nearMisses]) {
+      expect(a.engine).toBe("microWakeWord");
+      expect(a.score).toBeLessThanOrEqual(1);
+    }
+  });
+
   test("health needs no token and matches the shape", async () => {
     const res = await createFakeKiosk({ name: "kitchen" }).app.request("/api/health");
     expect(Health.parse(await res.json())).toMatchObject({

@@ -1,6 +1,7 @@
 // `mise run dev`: the parent's development entry (HMR, data in .dev-data/)
 // and two fake Kiosk Satellite devices (password `dev`) that hear a new clip
-// every 45 and 70 seconds, with prefixed logs. Ctrl-C stops all.
+// every 45 and 70 seconds, with prefixed logs. The kitchen runs vsWakeWord
+// and the lounge microWakeWord, so both score scales show. Ctrl-C stops all.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
@@ -25,6 +26,7 @@ const processes = [
       "bun",
       "devtools/fake-kiosk/src/main.ts",
       ...["--port", "23242", "--name", "lounge", "--seed", "2", "--every", "70"],
+      ...["--engine", "microWakeWord"],
     ],
   },
 ];

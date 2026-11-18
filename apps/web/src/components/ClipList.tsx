@@ -49,40 +49,42 @@ export function ClipList({
   };
 
   return (
-    <ul className={styles.list} aria-label={label} onKeyDown={onKeyDown}>
-      {clips.map((clip) => (
-        <li
-          key={clip.id}
-          data-clip-row={clip.id}
-          className={`${styles.row} ${player.current === clip.id ? styles.current : ""}`}
-        >
-          <PlayButton clip={clip} />
-          <Link
-            to="/clips/$clipId"
-            params={{ clipId: clip.id }}
-            search={search}
-            className={styles.open}
-            aria-keyshortcuts="Space ArrowUp ArrowDown"
+    <div className={styles.container}>
+      <ul className={styles.list} aria-label={label} onKeyDown={onKeyDown}>
+        {clips.map((clip) => (
+          <li
+            key={clip.id}
+            data-clip-row={clip.id}
+            className={`${styles.row} ${player.current === clip.id ? styles.current : ""}`}
           >
-            <time dateTime={clip.capturedAt}>{shortDateTime(clip.capturedAt)}</time>
-          </Link>
-          {showDevice && (
-            <span className={styles.device}>
-              {clip.deviceName}
-              {clip.deviceRemoved && <span className={styles.removed}> (removed)</span>}
+            <PlayButton clip={clip} />
+            <Link
+              to="/clips/$clipId"
+              params={{ clipId: clip.id }}
+              search={search}
+              className={styles.open}
+              aria-keyshortcuts="Space ArrowUp ArrowDown"
+            >
+              <time dateTime={clip.capturedAt}>{shortDateTime(clip.capturedAt)}</time>
+            </Link>
+            {showDevice && (
+              <span className={styles.device}>
+                {clip.deviceName}
+                {clip.deviceRemoved && <span className={styles.removed}> (removed)</span>}
+              </span>
+            )}
+            <span className={styles.kind}>
+              <KindChip kind={clip.kind} />
             </span>
-          )}
-          <span className={styles.kind}>
-            <KindChip kind={clip.kind} />
-          </span>
-          <span className={styles.score}>
-            <ScoreBar score={clip.score} threshold={clip.threshold} />
-          </span>
-          <span className={styles.flags}>
-            <ClippedChip samples={clip.clippedSamples} />
-          </span>
-        </li>
-      ))}
-    </ul>
+            <span className={styles.score}>
+              <ScoreBar score={clip.score} threshold={clip.threshold} />
+            </span>
+            <span className={styles.flags}>
+              <ClippedChip samples={clip.clippedSamples} labelClassName={styles.clippedLabel} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

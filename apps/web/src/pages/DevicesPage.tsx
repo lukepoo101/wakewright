@@ -4,6 +4,7 @@ import { useState } from "react";
 import { call, errorMessage, v1 } from "../api.ts";
 import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
 import { DiagnosticsOff } from "../components/DiagnosticsHelp.tsx";
+import { StatusMark } from "../components/StatusMark.tsx";
 import {
   Alert,
   Button,
@@ -17,6 +18,7 @@ import {
   adviceFor,
   detailFor,
   type Device,
+  deviceState,
   devicesKey,
   useCollection,
   useDevices,
@@ -81,15 +83,16 @@ function DeviceCard({ device }: { device: Device }) {
   });
 
   const { status, reported } = device;
-  const health = paused ? "paused" : status.health;
+  const state = deviceState(device, paused);
   const statusText = {
     paused: "Paused",
     waiting: "Waiting for the first poll",
     ok: `Collecting · checked ${ago(status.lastSuccessAt, now)}`,
+    diagnosticsOff: `Not collecting: wake word diagnostics are off · checked ${ago(status.lastSuccessAt, now)}`,
     failing: `Failing · ${plural(status.failures, "attempt")} · ${
       status.lastSuccessAt ? `last worked ${ago(status.lastSuccessAt, now)}` : "never worked yet"
     }`,
-  }[health];
+  }[state];
   const advice = status.error ? adviceFor(status.error.code) : null;
   const titleId = `device-${device.id}`;
 
@@ -98,7 +101,7 @@ function DeviceCard({ device }: { device: Device }) {
       <article aria-labelledby={titleId}>
         <div className={styles.top}>
           <div className={styles.heading}>
-            <span className={`${styles.dot} ${styles[health]}`} aria-hidden="true" />
+            <StatusMark state={state} className={styles.mark} />
             <div>
               <h2 id={titleId}>{device.name}</h2>
               <p className={styles.address}>
@@ -140,7 +143,7 @@ function DeviceCard({ device }: { device: Device }) {
 
         <dl className={styles.facts}>
           <dt>Status</dt>
-          <dd className={styles[`text_${health}`]}>{statusText}</dd>
+          <dd className={styles[`text_${state}`]}>{statusText}</dd>
           <dt>Wake word</dt>
           <dd>{wakeWordSummary(device)}</dd>
           <dt>Sensitivity</dt>

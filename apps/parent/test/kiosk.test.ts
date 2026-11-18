@@ -120,7 +120,7 @@ describe("Kiosk Satellite source", () => {
       capturedAt: new Date(refs[0] ?? 0).toISOString(),
       wakeWord: "alexa",
       engine: "vsWakeWord",
-      threshold: 0.6,
+      threshold: 10.5,
       durationMs: 3000,
     });
     expect(poll.entries[0]?.meta).toHaveProperty("decoded");
