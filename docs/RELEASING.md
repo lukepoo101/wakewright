@@ -64,7 +64,10 @@ Options:
   release from that commit. To retry without a change, re-run the failed
   jobs of that CI run.
 - **The scan blocks on an upstream vulnerability:** a Renovate digest pull
-  request usually fixes the base image. If no fix exists yet in the image
+  request usually fixes the base image. The worker image also installs
+  Debian's security updates when it is built (its layer cache is kept for
+  a day at most), so a fix Debian has published reaches the image with the
+  next merge to `main`, which publishes the untagged release. If no fix exists yet in the image
   but one is listed upstream, decide in the pull request whether to wait
   or add a dated, reasoned ignore to `.grype.yaml`.
 
