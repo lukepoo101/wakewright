@@ -1,6 +1,6 @@
 """The parent's worker API, `/api/worker/v1`, as the worker uses it.
 
-Wire format: docs/worker-protocol.md (the parent's OpenAPI document is the
+Wire format: docs/workers.md (docs/api/worker-v1.openapi.json is the
 source of truth). The worker only ever makes outbound requests.
 """
 
@@ -28,11 +28,11 @@ class Unreachable(ParentError):
 
 
 class NotEnabled(ParentError):
-    """404: the parent has no worker token set, so judging is off."""
+    """404: no worker API at this address (a parent before 0.2.0 without a token)."""
 
 
 class Unauthorised(ParentError):
-    """401 or 403: the token does not match the parent's."""
+    """401 or 403: the token is not a worker's (replaced, deleted or mistyped)."""
 
 
 class ProtocolMismatch(ParentError):
@@ -130,13 +130,14 @@ class ParentClient:
             raise Gone(gone)
         if r.status_code == 404:
             raise NotEnabled(
-                "the parent's worker API is not set up (404): set WAKEWRIGHT__WORKER__TOKEN "
-                "on the parent"
+                "no worker API at this address (404): check the parent's address, and that "
+                "the parent is the same Wakewright release as this worker"
             )
         if r.status_code in (401, 403):
             raise Unauthorised(
-                f"the parent refused the worker token ({r.status_code}): it must equal the "
-                "parent's WAKEWRIGHT__WORKER__TOKEN"
+                f"the parent refused this worker's token ({r.status_code}): it was replaced, its "
+                "worker was deleted, or it is mistyped; check the worker in the parent's "
+                "Workers tab"
             )
         if r.status_code == 426:
             raise ProtocolMismatch(

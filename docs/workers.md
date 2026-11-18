@@ -11,11 +11,34 @@ format is [`docs/api/worker-v1.openapi.json`](api/worker-v1.openapi.json)
 
 ## Access
 
-Set `WAKEWRIGHT__WORKER__TOKEN` (or `_FILE`) on the parent to a long random
-value, for example `openssl rand -base64 32`, and give the worker the same
-token. Every request sends `Authorization: Bearer <token>`. While the parent
-has no token, every worker path answers `404`. A wrong or missing token
-answers `401`. User sign-in has nothing to do with it.
+Each worker has its own token: create the worker on the parent's Workers
+page, which shows its token once, or declare it in the parent's
+configuration ([configuration](configuration.md#workers)). Every request
+sends `Authorization: Bearer <token>`. A missing token, a wrong one, or one
+that was replaced or whose worker was deleted answers `401`. User sign-in
+has nothing to do with it. Tokens the parent makes start with `wwk_`; treat
+them as secrets and never log them.
+
+The token decides which worker you are: the parent shows what your claims
+report (`worker.name`, usually the host name, and `worker.version`) beside
+the name the owner gave the worker. The owner can pause a worker, which
+then gets no jobs, and limit the judges it may run; the parent only asks
+for judges you offer and may run.
+
+### The pairing string
+
+The Workers page also shows a pairing string, so a worker needs one value:
+
+```
+wakewright-pair:1:eyJ1cmwiOiJodHRwOi8vd2FrZXdyaWdodDo4MDgwIiwidG9rZW4iOiJ3d2tfZXhhbXBsZSJ9
+```
+
+It is `wakewright-pair:`, the format version (`1`), `:`, and the
+base64url encoding (no padding) of a UTF-8 JSON object with the parent's
+address and the token: `{"url":"http://wakewright:8080","token":"wwk_example"}`.
+A worker should accept it in place of an address and a token, refuse a
+version it does not know by name, and let a separately configured address
+override the one inside. It holds the token: never log it.
 
 ## The loop
 
@@ -44,7 +67,7 @@ All paths are under `/api/worker/v1`.
    every clip. With nothing to do the request waits up to `waitSeconds`
    (at most 60) and answers an empty list; claim again straight away.
    The claim also tells the parent the worker is connected, which the UI
-   shows.
+   shows. A paused worker's claim waits and answers an empty list.
 
 2. **Download** `GET /clips/{clipId}/audio`: a WAV, 16 kHz mono 16-bit PCM,
    normally 3.00 s with the wake word near the end.
@@ -75,13 +98,13 @@ All paths are under `/api/worker/v1`.
 
 ## Errors to handle
 
-| Status | Meaning                                                           | What to do                         |
-| ------ | ----------------------------------------------------------------- | ---------------------------------- |
-| `400`  | The request does not match the schema, or names an unasked judge  | Fix the worker; the body says what |
-| `401`  | Wrong or missing token                                            | Stop and report it                 |
-| `404`  | Judging is not set up on the parent (no token), or no such clip   | Retry the claim after a while      |
-| `409`  | The job's lease (about 2 minutes) expired, or the job is unknown  | Drop the job and claim again       |
-| `426`  | The parent does not speak this `protocol`; the body has its range | Upgrade the parent or the worker   |
+| Status | Meaning                                                                                     | What to do                         |
+| ------ | ------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `400`  | The request does not match the schema, or names an unasked judge                            | Fix the worker; the body says what |
+| `401`  | Missing or wrong token, replaced, or its worker was deleted                                 | Report it; retry after a while     |
+| `404`  | No such clip                                                                                | Drop the job                       |
+| `409`  | The lease expired or was released (the worker was paused or changed), or the job is unknown | Drop the job and claim again       |
+| `426`  | The parent does not speak this `protocol`; the body has its range                           | Upgrade the parent or the worker   |
 
 Each job is leased to your claim for about two minutes, so claim no more
 than you can judge in that time. Retry network errors with a short backoff.

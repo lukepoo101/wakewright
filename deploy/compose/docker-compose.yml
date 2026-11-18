@@ -4,17 +4,19 @@
 #   mkdir -p secrets
 #   openssl rand -base64 32 > secrets/key            # encrypts stored device passwords
 #   printf '%s' 'a long admin password' > secrets/admin_password
-#   openssl rand -base64 32 > secrets/worker_token   # shared by the parent and the worker
+#   openssl rand -base64 32 > secrets/worker_token   # the declared worker's token
 #   chmod 644 secrets/*                              # the containers run as uid 10001
 # Or delete the key and admin WAKEWRIGHT__*_FILE lines and their secrets: the
 # key is then generated into the data volume and the web UI asks you to
 # create the admin.
 #
-# The worker judges clips (docs/worker.md). It needs no port; it downloads
-# its models (about 2.5 GB) into the worker-cache volume on first start.
-# Delete the worker service, the WAKEWRIGHT__WORKER__TOKEN_FILE line and the
-# worker_token secret to run without judging, or run the worker on another
-# machine instead (it only needs to reach the parent).
+# The worker judges clips (docs/worker.md). It is declared on the parent as
+# "compose-worker" with the token in secrets/worker_token, and shows on the
+# Workers page as set by configuration. It needs no port; it downloads its
+# models (about 2.5 GB) into the worker-cache volume on first start. Delete
+# the worker service, the WAKEWRIGHT__WORKERS__ line and the worker_token
+# secret to run without it; workers on other machines are added on the
+# Workers page, which gives each its own token.
 name: wakewright
 services:
   wakewright:
@@ -33,7 +35,7 @@ services:
       WAKEWRIGHT__SERVER__PUBLIC_URL: http://wakewright.local:8080
       WAKEWRIGHT__SECRET_KEY_FILE: /run/secrets/wakewright_key
       WAKEWRIGHT__ADMIN__PASSWORD_FILE: /run/secrets/wakewright_admin
-      WAKEWRIGHT__WORKER__TOKEN_FILE: /run/secrets/wakewright_worker_token
+      WAKEWRIGHT__WORKERS__COMPOSE_WORKER__TOKEN_FILE: /run/secrets/wakewright_worker_token
     secrets: [wakewright_key, wakewright_admin, wakewright_worker_token]
   worker:
     # Always the same release as the parent.

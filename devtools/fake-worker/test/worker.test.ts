@@ -4,6 +4,7 @@ import { testApi } from "../../../apps/parent/test/helpers.ts";
 import { fakeCase, fakeVerdicts, runFakeWorker } from "../src/worker.ts";
 
 const TOKEN = "fake-worker-test-token";
+const DECLARED = [{ name: "fake", token: TOKEN, notes: "", enabled: true, judges: null }];
 
 test("verdicts follow the clip's case and the judges asked for", async () => {
   const audio = new Uint8Array([1, 2, 3]);
@@ -15,7 +16,7 @@ test("verdicts follow the clip's case and the judges asked for", async () => {
 
 test("judges every clip of a served parent through the worker protocol", async () => {
   const kiosk = createFakeKiosk({ name: "kitchen", initialClips: 10, seed: 1 });
-  const t = await testApi({ fetch: kiosk.fetch, workerToken: TOKEN });
+  const t = await testApi({ fetch: kiosk.fetch, declared: DECLARED });
   await t.setUp();
   await t.request("/api/v1/devices", {
     json: { name: "kitchen", baseUrl: "http://kitchen.test:2324", password: "dev" },

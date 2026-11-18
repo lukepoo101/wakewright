@@ -117,7 +117,9 @@ export async function fakeVerdicts(
 export interface FakeWorkerOptions {
   /** The parent's address, e.g. http://127.0.0.1:8080. */
   parentUrl: string;
+  /** This worker's token, from the parent's Workers tab or its configuration. */
   token: string;
+  /** What it reports itself as; the parent shows it beside the worker's own name. */
   name?: string;
   /** Pretend each clip takes this long to judge. */
   delayMs?: number;
@@ -154,12 +156,12 @@ export async function runFakeWorker(options: FakeWorkerOptions): Promise<void> {
       });
       if (!res.ok) {
         problem(
-          res.status === 404
-            ? "judging is not set up on the parent (no WAKEWRIGHT__WORKER__TOKEN); retrying"
+          res.status === 401
+            ? "the parent refused this worker's token: it was replaced, the worker was deleted, or it is mistyped; retrying"
             : `the parent answered ${res.status} to a claim; retrying`,
         );
         await res.body?.cancel();
-        await sleep(res.status === 404 ? 5000 : 2000, signal);
+        await sleep(res.status === 401 ? 5000 : 2000, signal);
         continue;
       }
       if (lastProblem) log("connected to the parent");

@@ -9,6 +9,7 @@ import { useClipSummary, useClips } from "../clips.ts";
 import { adviceFor, type Device, deviceState, useCollection, useDevices } from "../devices.ts";
 import { ago, plural, useNow } from "../format.ts";
 import { type JudgingStatus, useJudgingStatus } from "../judging.ts";
+import { workerState } from "../workers.ts";
 import styles from "./HomePage.module.css";
 
 // Home: until the first clip arrives, the steps to get there; after that,
@@ -140,91 +141,90 @@ export function HomePage() {
   );
 }
 
-// Whether a worker is judging clips, what waits, and where the judges and
-// the device disagree, each count linking to the clips it counts.
+// The workers and whether each is judging, what waits, and where the
+// judges and the device disagree, each count linking to the clips it counts.
 function JudgingCard({ status, now }: { status: JudgingStatus; now: number }) {
-  const connected = status.workers.filter((w) => w.connected);
-  const last = status.workers[0];
-  let state: "ok" | "waiting" | "failing" = "waiting";
-  let line: string;
-  if (!status.configured) {
-    line = "Not set up";
-  } else if (connected.length > 0) {
-    state = "ok";
-    line =
-      connected.length === 1
-        ? `${connected[0]?.name} connected`
-        : `${connected.length} workers connected`;
-  } else if (last) {
-    state = "failing";
-    line = `No worker connected · last seen ${ago(last.lastSeenAt, now)}`;
-  } else {
-    line = "No worker has connected yet";
-  }
+  const workers = status.workers;
+  const connected = workers.filter((w) => w.connected && w.enabled).length;
+  const shown = workers.slice(0, 5);
 
   return (
     <Card>
       <div className={styles.cardHead}>
         <h2>Judging</h2>
+        <Link to="/workers">{workers.length > 0 ? "Manage" : "Add a worker"}</Link>
       </div>
-      <p className={styles.judgingState}>
-        <StatusMark state={state} className={styles.mark} />
-        <span>{line}</span>
-      </p>
-      {state === "ok" && last && (
-        <p className={styles.judgingNote}>Last seen {ago(last.lastSeenAt, now)}</p>
-      )}
-      {!status.configured ? (
+      {workers.length === 0 ? (
         <p className={styles.judgingNote}>
-          Workers judge each clip automatically: does it contain its wake word? Set{" "}
-          <code>WAKEWRIGHT__WORKER__TOKEN</code> on this server and start a worker with the same
-          token.
+          No workers yet. A worker judges every clip automatically: does it contain its wake word?{" "}
+          <Link to="/workers">Add one</Link> to get its token, then start it on any computer that
+          can reach this server.
         </p>
       ) : (
         <>
-          {status.workers.length === 0 && (
-            <p className={styles.judgingNote}>
-              Start a Wakewright worker with this server's worker token, and it judges every clip.
-            </p>
-          )}
-          <p className={styles.judgingNote}>
-            {status.waiting > 0
-              ? `${plural(status.waiting, "clip")} waiting to be judged`
-              : status.judged > 0
-                ? "Every clip is judged"
-                : "Nothing to judge yet"}
+          <p className={styles.judgingSummary}>
+            {connected === 0
+              ? "No worker connected"
+              : `${connected} of ${plural(workers.length, "worker")} connected`}
           </p>
-          {status.judged > 0 && (
-            <ul className={styles.judgingLinks}>
-              <li>
-                <Link to="/clips" search={{ judges: "disagree" }} className={styles.bigLink}>
-                  <span className={styles.bigNumber}>
-                    {status.disagree.toLocaleString("en-GB")}
-                  </span>
-                  <span className={styles.bigLabel}>
-                    {status.disagree === 1 ? "disagreement" : "disagreements"}
-                  </span>
-                </Link>
-                <span className={styles.judgingHint}>between the judges</span>
+          <ul className={styles.workers}>
+            {shown.map((w) => (
+              <li key={w.id}>
+                <StatusMark state={workerState(w)} className={styles.mark} />
+                <span className={styles.deviceName}>{w.name}</span>
+                <span className={styles.deviceState}>{workerLine(w, now)}</span>
               </li>
-              <li>
-                <Link to="/clips" search={{ judges: "false_wake" }}>
-                  {plural(status.falseWake, "likely false wake")}
-                </Link>
-                <span className={styles.judgingHint}>the device woke up, the judges say no</span>
-              </li>
-              <li>
-                <Link to="/clips" search={{ judges: "missed_wake" }}>
-                  {plural(status.missedWake, "likely missed wake word")}
-                </Link>
-                <span className={styles.judgingHint}>a near miss the judges say yes to</span>
-              </li>
-            </ul>
+            ))}
+          </ul>
+          {workers.length > shown.length && (
+            <p className={styles.judgingNote}>
+              and {plural(workers.length - shown.length, "more worker")}.{" "}
+              <Link to="/workers">See them all</Link>
+            </p>
           )}
         </>
       )}
+      <p className={styles.judgingNote}>
+        {status.waiting > 0
+          ? `${plural(status.waiting, "clip")} waiting to be judged`
+          : status.judged > 0
+            ? "Every clip is judged"
+            : "Nothing to judge yet"}
+      </p>
+      {status.judged > 0 && (
+        <ul className={styles.judgingLinks}>
+          <li>
+            <Link to="/clips" search={{ judges: "disagree" }} className={styles.bigLink}>
+              <span className={styles.bigNumber}>{status.disagree.toLocaleString("en-GB")}</span>
+              <span className={styles.bigLabel}>
+                {status.disagree === 1 ? "disagreement" : "disagreements"}
+              </span>
+            </Link>
+            <span className={styles.judgingHint}>between the judges</span>
+          </li>
+          <li>
+            <Link to="/clips" search={{ judges: "false_wake" }}>
+              {plural(status.falseWake, "likely false wake")}
+            </Link>
+            <span className={styles.judgingHint}>the device woke up, the judges say no</span>
+          </li>
+          <li>
+            <Link to="/clips" search={{ judges: "missed_wake" }}>
+              {plural(status.missedWake, "likely missed wake word")}
+            </Link>
+            <span className={styles.judgingHint}>a near miss the judges say yes to</span>
+          </li>
+        </ul>
+      )}
     </Card>
   );
+}
+
+// A worker's state for Home's short list.
+function workerLine(w: JudgingStatus["workers"][number], now: number): string {
+  if (!w.enabled) return "paused";
+  if (w.connected) return "connected";
+  return w.reported.lastSeenAt ? `last seen ${ago(w.reported.lastSeenAt, now)}` : "never connected";
 }
 
 function deviceLine(d: Device, now: number, paused: boolean): string {

@@ -318,14 +318,15 @@ jobs:
           docker image ls "$IMAGE" --format 'Image size: {{.Size}}'
 
       # Run it as a user would: read-only root filesystem, writable /data
-      # volume and /tmp, no extra privileges. The worker token (not a secret,
-      # the same as in playwright.config.ts) lets E2E run the fake worker.
+      # volume and /tmp, no extra privileges. The declared worker's token (not
+      # a secret, the same as in playwright.config.ts) lets E2E run the fake
+      # worker.
       - name: Start the image
         run: |
           docker run -d --name wakewright --read-only --tmpfs /tmp \
             --cap-drop ALL --security-opt no-new-privileges \
             --add-host=host.docker.internal:host-gateway \
-            -e WAKEWRIGHT__WORKER__TOKEN=e2e-worker-token-not-secret \
+            -e WAKEWRIGHT__WORKERS__E2E_DECLARED__TOKEN=e2e-worker-token-not-secret \
             -p 8080:8080 "$IMAGE"
           # A second instance with sign-in off, as behind an authenticating proxy.
           docker run -d --name wakewright-open --read-only --tmpfs /tmp \
@@ -455,15 +456,15 @@ jobs:
           '
 
       # With only microWakeWord (a few hundred kB to download) against a
-      # parent that is not there: the loop must start, report the parent as
-      # unreachable, and stop within a second of SIGTERM.
+      # parent that is not there, given as a pairing string (its address is
+      # http://127.0.0.1:9, its token not a secret): the loop must start,
+      # report the parent as unreachable, and stop within a second of SIGTERM.
       - name: Start, retry and stop
         run: |
           start=$(date +%s.%N)
           docker run -d --name worker --read-only --tmpfs /tmp \
             --cap-drop ALL --security-opt no-new-privileges \
-            -e WAKEWRIGHT_WORKER__PARENT_URL=http://127.0.0.1:9 \
-            -e WAKEWRIGHT_WORKER__TOKEN=not-a-secret \
+            -e WAKEWRIGHT_WORKER__PAIRING=wakewright-pair:1:eyJ1cmwiOiJodHRwOi8vMTI3LjAuMC4xOjkiLCJ0b2tlbiI6Im5vdC1hLXNlY3JldCJ9 \
             -e WAKEWRIGHT_WORKER__JUDGES=microwakeword \
             "$IMAGE"
           for _ in $(seq 60); do

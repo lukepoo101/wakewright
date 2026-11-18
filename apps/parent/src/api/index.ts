@@ -14,6 +14,8 @@ import { healthRoutes } from "./health.ts";
 import { judgingRoutes } from "./judging.ts";
 import { sessionRoutes } from "./session.ts";
 import { WORKER_AUTH, WORKER_BASE, workerRoutes, workerSecurityScheme } from "./worker.ts";
+import { workerAdminRoutes } from "./workers.ts";
+import type { Workers } from "../workers.ts";
 
 export interface ApiDeps {
   db: Database;
@@ -22,8 +24,7 @@ export interface ApiDeps {
   blobs: BlobStore;
   collector: Collector;
   judging: Judging;
-  /** The shared worker token (WAKEWRIGHT__WORKER__TOKEN); no worker API without one. */
-  workerToken?: string;
+  workers: Workers;
   /** The collector's poll interval, shown in the UI. */
   intervalMs: number;
   /** The configured public address, if any (WAKEWRIGHT__SERVER__PUBLIC_URL). */
@@ -50,7 +51,8 @@ export function createApi(deps: ApiDeps) {
     .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)))
     .route("/api/v1", clipRoutes(deps, requireUser(deps.auth, policy)))
     .route("/api/v1", judgingRoutes(deps.judging, requireUser(deps.auth, policy)))
-    .route(WORKER_BASE, workerRoutes({ ...deps, token: deps.workerToken }));
+    .route("/api/v1", workerAdminRoutes(deps, requireUser(deps.auth, policy)))
+    .route(WORKER_BASE, workerRoutes(deps));
 
   app.openAPIRegistry.registerComponent("securitySchemes", WORKER_AUTH, workerSecurityScheme);
   app.doc31("/api/openapi.json", {

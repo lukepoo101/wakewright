@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import time
 from pathlib import Path
@@ -52,6 +54,25 @@ def test_run_once_against_the_fake_parent(monkeypatch: pytest.MonkeyPatch, tmp_p
         }.items():
             monkeypatch.setenv(f"WAKEWRIGHT_WORKER__{key}", value)
         assert cli.main(["run", "--once"]) == 0
+        assert parent.results["j1"][0]["judge"] == "fake"
+    finally:
+        parent.shutdown()
+
+
+def test_run_once_with_a_pairing_argument(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    parent = FakeParent().serve()
+    try:
+        parent.add(FakeJob("j1", "c1"))
+        monkeypatch.setattr(cli, "HEARTBEAT", tmp_path / "alive")
+        monkeypatch.setattr(cli, "build_judges", lambda cfg, names=None: [FakeJudge()])
+        for key in list(os.environ):
+            if key.startswith("WAKEWRIGHT_WORKER__"):
+                monkeypatch.delenv(key)
+        monkeypatch.setenv("WAKEWRIGHT_WORKER__CACHE_DIR", str(tmp_path))
+        monkeypatch.setenv("WAKEWRIGHT_WORKER__WAIT_SECONDS", "1")
+        data = json.dumps({"url": parent.url, "token": TOKEN}).encode()
+        pairing = "wakewright-pair:1:" + base64.urlsafe_b64encode(data).decode().rstrip("=")
+        assert cli.main(["run", "--once", "--pairing", pairing]) == 0
         assert parent.results["j1"][0]["judge"] == "fake"
     finally:
         parent.shutdown()

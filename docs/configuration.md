@@ -3,8 +3,8 @@
 Wakewright is configured only with environment variables named
 `WAKEWRIGHT__SECTION__KEY`. They are validated at start-up, and the server
 refuses to start with a message naming any variable it cannot use.
-Everything you change while it runs (the admin account, devices, pausing)
-lives in the database instead.
+Everything you change while it runs (the admin account, devices, workers
+created in the UI, pausing) lives in the database instead.
 
 A secret can be given directly, or as a path to a file in the matching
 `_FILE` variable, which is what Docker and Kubernetes secrets provide. Set
@@ -24,8 +24,10 @@ one or the other, not both. One trailing newline in a file is ignored.
 | `WAKEWRIGHT__ADMIN__PASSWORD_FILE`        | none                          | A file holding the admin password.                                                                                                                                                                                                                |
 | `WAKEWRIGHT__SECRET_KEY`                  | generated                     | The key that encrypts stored device passwords: 32 random bytes in base64 (`openssl rand -base64 32`). Without it, Wakewright creates `secret.key` in the data directory on first start.                                                           |
 | `WAKEWRIGHT__SECRET_KEY_FILE`             | none                          | A file holding the secret key.                                                                                                                                                                                                                    |
-| `WAKEWRIGHT__WORKER__TOKEN`               | none                          | The token workers send to judge clips, at least 16 characters (`openssl rand -base64 32`). Without it judging is off: the worker API answers 404 and the UI says judging is not set up ([below](#judging)).                                       |
-| `WAKEWRIGHT__WORKER__TOKEN_FILE`          | none                          | A file holding the worker token.                                                                                                                                                                                                                  |
+| `WAKEWRIGHT__WORKERS__<NAME>__TOKEN`      | none                          | Declares a worker named after `<NAME>` with this token, at least 16 characters ([below](#workers)). Or `__TOKEN_FILE`.                                                                                                                            |
+| `WAKEWRIGHT__WORKERS__<NAME>__JUDGES`     | `all`                         | The judges a declared worker may run, separated by commas (`openwakeword,microwakeword,stt`), or `all`.                                                                                                                                           |
+| `WAKEWRIGHT__WORKERS__<NAME>__NOTES`      | none                          | Notes shown with a declared worker.                                                                                                                                                                                                               |
+| `WAKEWRIGHT__WORKERS__<NAME>__ENABLED`    | `true`                        | `false` pauses a declared worker: it stays connected but gets no clips.                                                                                                                                                                           |
 | `WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS` | `10`                          | How often each device is asked for new clips (1–3600). A device keeps only its last 10 wake words and 10 near misses, so keep this well under the time it takes to hear 10.                                                                       |
 | `WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS`  | `10`                          | How long one call to a device may take before it counts as failed (1–120).                                                                                                                                                                        |
 
@@ -59,17 +61,58 @@ usual.
 would protect nothing. An admin account already in the database is kept,
 so setting the mode back to `local` restores it.
 
-## Judging
+## Workers
 
-Workers judge each clip: does it contain its wake word? To let them, set
-`WAKEWRIGHT__WORKER__TOKEN` (or `_FILE`) to a long random value and give
-each worker the same token. Workers connect to the parent, never the other
-way round, and the token opens only the worker API (`/api/worker/v1`), not
-the web UI or its API; sign-in settings do not affect it. Changing the
-token disconnects workers until they have the new one. See
-[worker.md](worker.md) to run Wakewright's worker (its own
+Workers judge each clip: does it contain its wake word? Each worker has its
+own token, which opens only the worker API (`/api/worker/v1`), never the
+web UI or its API; sign-in settings do not affect it. Workers connect to
+the parent, never the other way round. There are two ways to add one, and
+both show on the Workers page:
+
+- **In the UI**: on the Workers page, choose Add worker. Wakewright shows
+  the token once, with a pairing string (this server's address and the
+  token in one value) and the command to start a worker with it. There you
+  can also rename, pause, limit the judges, give a new token or delete it.
+- **In configuration**, for GitOps: set
+  `WAKEWRIGHT__WORKERS__<NAME>__TOKEN` or `__TOKEN_FILE`, plus the optional
+  `__JUDGES`, `__NOTES` and `__ENABLED`. `<NAME>` is letters and digits
+  joined by single underscores, and the worker's name is the same in lower
+  case with dashes: `WAKEWRIGHT__WORKERS__CLUSTER_WORKER__TOKEN_FILE`
+  declares `cluster-worker`. Any value of 16 or more characters is a token;
+  `openssl rand -base64 32` makes a good one. Configuration is applied on
+  every start: a changed token stops the old one, and a worker removed from
+  configuration is deleted. The Workers page shows these as "Set by
+  configuration" and cannot change them.
+
+Names are unique, ignoring case. The UI will not take a declared worker's
+name; if configuration declares the name of a worker created in the UI,
+that worker is renamed `<name>-created-here` and keeps working. Two workers
+may not share a token.
+
+A worker is sent clips only for judges it offers and may run, and none
+while paused. Pausing, deleting or giving a new token takes effect at
+once: the clips it was judging go to other workers, and a deleted or
+replaced token is refused. Verdicts it already gave stay, under its name.
+See [worker.md](worker.md) to run Wakewright's worker (its own
 `WAKEWRIGHT_WORKER__*` settings are listed there) and
 [workers.md](workers.md) for the protocol.
+
+### Upgrading from 0.1
+
+0.2.0 removed the shared `WAKEWRIGHT__WORKER__TOKEN` and `_FILE`; the
+server refuses to start while either is set. Rename the variable to declare
+a worker with the same token, and running workers carry on unchanged:
+
+```sh
+# before
+WAKEWRIGHT__WORKER__TOKEN_FILE=/run/secrets/worker_token
+# after: a worker called "my-worker" with the same token
+WAKEWRIGHT__WORKERS__MY_WORKER__TOKEN_FILE=/run/secrets/worker_token
+```
+
+Declare one worker per token. Several workers that shared the old token
+can share it for now as one declared worker; give each its own when you
+can, so each can be paused and revoked alone.
 
 ## The secret key
 

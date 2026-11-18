@@ -64,9 +64,10 @@ def test_the_paths_the_worker_uses_exist() -> None:
     assert "post" in SPEC["paths"][f"{API}/jobs/claim"]
     assert "get" in SPEC["paths"][f"{API}/clips/{{clipId}}/audio"]
     assert "post" in SPEC["paths"][f"{API}/jobs/{{id}}/results"]
-    # The statuses the client turns into its errors are all documented.
+    # The statuses the client turns into its errors are all documented. (It
+    # also handles 404, which a parent before 0.2.0 sent with no token set.)
     claim = SPEC["paths"][f"{API}/jobs/claim"]["post"]["responses"]
-    assert {"200", "401", "404", "426"} <= set(claim)
+    assert {"200", "401", "426"} <= set(claim)
     assert "409" in SPEC["paths"][f"{API}/jobs/{{id}}/results"]["post"]["responses"]
 
 

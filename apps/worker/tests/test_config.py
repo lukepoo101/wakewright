@@ -85,3 +85,60 @@ def test_default_cache_dir_per_platform(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.default_cache_dir({"LOCALAPPDATA": "C:/Users/u/AppData/Local"}) == Path(
         "C:/Users/u/AppData/Local/Wakewright/worker/cache"
     )
+
+
+# The example in docs/workers.md and apps/parent/test/workers.test.ts.
+EXAMPLE = (
+    "wakewright-pair:1:eyJ1cmwiOiJodHRwOi8vd2FrZXdyaWdodDo4MDgwIiwidG9rZW4iOiJ3d2tfZXhhbXBsZSJ9"
+)
+
+
+def test_a_pairing_string_gives_the_address_and_token() -> None:
+    assert config.parse_pairing(f" {EXAMPLE}\n") == ("http://wakewright:8080", "wwk_example")
+    cfg = load({"WAKEWRIGHT_WORKER__PAIRING": EXAMPLE})
+    assert (cfg.parent_url, cfg.token) == ("http://wakewright:8080", "wwk_example")
+    # From the command line or a file too, and PARENT_URL replaces its address.
+    cfg = load({"WAKEWRIGHT_WORKER__PARENT_URL": "http://10.1.2.3:8080/"}, pairing=EXAMPLE)
+    assert (cfg.parent_url, cfg.token) == ("http://10.1.2.3:8080", "wwk_example")
+
+
+def test_a_pairing_file(tmp_path: Path) -> None:
+    (tmp_path / "pairing").write_text(EXAMPLE + "\n")
+    cfg = load({"WAKEWRIGHT_WORKER__PAIRING_FILE": str(tmp_path / "pairing")})
+    assert cfg.token == "wwk_example"
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("wwk_example", 'starts with "wakewright-pair:"'),
+        ("wakewright-pair:2:abc", "format 2; this worker reads format 1"),
+        ("wakewright-pair:1:!!!", "damaged"),
+        ("wakewright-pair:1:bm90IGpzb24", "damaged"),
+        # {"url": "ftp://x", "token": "t"}
+        ("wakewright-pair:1:eyJ1cmwiOiJmdHA6Ly94IiwidG9rZW4iOiJ0In0", "no http"),
+        # {"url": "http://x", "token": ""}
+        ("wakewright-pair:1:eyJ1cmwiOiJodHRwOi8veCIsInRva2VuIjoiIn0", "no token"),
+    ],
+)
+def test_a_bad_pairing_string_says_what_is_wrong(value: str, message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load({"WAKEWRIGHT_WORKER__PAIRING": value})
+
+
+def test_a_pairing_string_and_a_token_are_refused_together(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="not both"):
+        load({"WAKEWRIGHT_WORKER__PAIRING": EXAMPLE, "WAKEWRIGHT_WORKER__TOKEN": "t"})
+    with pytest.raises(ConfigError, match="not both"):
+        load(
+            {
+                "WAKEWRIGHT_WORKER__PAIRING": EXAMPLE,
+                "WAKEWRIGHT_WORKER__PAIRING_FILE": str(tmp_path / "x"),
+            }
+        )
+
+
+def test_the_pairing_string_never_appears_in_repr() -> None:
+    text = repr(load({"WAKEWRIGHT_WORKER__PAIRING": EXAMPLE}))
+    assert EXAMPLE not in text
+    assert "wwk_example" not in text

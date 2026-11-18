@@ -71,13 +71,20 @@ judges each clip, and the parent shows where the judges disagree.
   with wavesurfer.js from the WAV itself; lists play through one shared
   `<audio>` element. Home shows the first-run steps until the first clip
   arrives, then collection health, judging and the latest clips.
+- **Workers** (`workers.ts`, `db/workers.ts`): each worker is a record
+  with its own token, of which only the SHA-256 is stored, created on the
+  Workers page (`/api/v1/workers`, which shows the token once with a
+  pairing string) or declared in configuration
+  (`WAKEWRIGHT__WORKERS__<NAME>__*`, applied on every start and read-only
+  in the UI). Pausing, deleting or a new token releases its leases at once
+  ([ADR 0018](adr/0018-workers-with-their-own-tokens.md)).
 - **Judging** (`judging.ts`, `db/judging.ts`): workers call
-  `/api/worker/v1` with the shared worker token to claim clips (a long poll
+  `/api/worker/v1` with their own token to claim clips (a long poll
   that the collector wakes when it stores a clip), download their audio and
   send back each judge's verdict ([workers.md](workers.md)). There is no
   job table: a clip needs judging while it lacks a result for a
-  (judge, version) a worker offers for its wake word, and a two-minute
-  lease keeps two workers off one clip. Agreement (waiting, inconclusive,
+  (judge, version) the worker offers for its wake word and may run, and a
+  two-minute lease keeps two workers off one clip. Agreement (waiting, inconclusive,
   agree yes or no, disagree) and disagreement with the device (likely
   false wake, likely missed wake word) are computed in SQL from each
   judge's latest result, so the clip list filters on them
@@ -126,7 +133,9 @@ apps/parent/          @wakewright/parent: the server
   src/auth.ts         admin account, sessions, login throttle
   src/source.ts       the Source interface every kind of device implements
   src/ingest.ts       the collector: polling, storing clips, status, pause
-  src/judging.ts      judging: claims and leases, the long poll, results, status
+  src/judging.ts      judging: claims and leases, routing, the long poll, results, status
+  src/workers.ts      workers: tokens, declared workers applied at start, pause, revoke
+  src/pairing.ts      the pairing string (address + token) a worker is set up with
   src/clip-settings.ts which device settings a clip may claim (ADR 0014)
   src/clipping.ts     measuring full-scale runs; clipping-rule.ts: when a clip counts as clipped
   src/devices.ts      device management: sources, encrypted passwords, testing
@@ -185,7 +194,8 @@ judges nothing: each clip's verdicts are picked from a hash of its audio, so
 the fake device's synthetic clips always get the same ones and cover every
 state (all yes, all no, a disagreement, an abstention, a judge failing).
 It offers openWakeWord for "alexa" only, so clips of other wake words show
-a judge without a model. `mise run dev` runs it; tests and E2E run it
+a judge without a model. It takes a token or a pairing string. `mise run
+dev` runs it as the declared worker `dev-worker`; tests and E2E run it
 in-process (`runFakeWorker`) and predict its verdicts with `fakeVerdicts`.
 
 ## Decisions
@@ -209,3 +219,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0015 [Sign-in can be turned off for an authenticating proxy](adr/0015-sign-in-off-behind-a-proxy.md)
 - 0016 [Judging: a derived queue with leases, a shared token, unweighted agreement](adr/0016-judging-queue-and-agreement.md)
 - 0017 [The worker: Python with uv, three downloaded judges, a second image](adr/0017-the-worker.md)
+- 0018 [Workers as records with their own tokens, created in the UI or declared](adr/0018-workers-with-their-own-tokens.md)

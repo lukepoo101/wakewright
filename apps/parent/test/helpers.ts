@@ -13,6 +13,8 @@ import { Devices } from "../src/devices.ts";
 import { Collector } from "../src/ingest.ts";
 import { Judging } from "../src/judging.ts";
 import { createLogger, type Logger } from "../src/log.ts";
+import type { DeclaredWorker } from "../src/config.ts";
+import { Workers } from "../src/workers.ts";
 
 // Shared test set-up: an in-memory migrated database, a silent logger and
 // an API whose requests look like they come from the SPA.
@@ -42,6 +44,7 @@ export interface Parts {
   devices: Devices;
   collector: Collector;
   judging: Judging;
+  workers: Workers;
   dataDir: string;
 }
 
@@ -55,7 +58,8 @@ export async function testParts(
     dataDir?: string;
     fetch?: typeof fetch;
     now?: () => number;
-    workerToken?: string;
+    /** Workers declared as if by configuration. */
+    declared?: DeclaredWorker[];
   } = {},
 ): Promise<Parts> {
   const db = options.db ?? migratedDb();
@@ -66,12 +70,14 @@ export async function testParts(
     fetch: options.fetch ?? fetch,
     timeoutMs: 2000,
   });
-  const judging = new Judging({
+  const judging = new Judging({ db, log: quietLog, now: options.now });
+  const workers = new Workers({
     db,
     log: quietLog,
-    configured: options.workerToken !== undefined,
     now: options.now,
+    onChange: () => judging.notify(),
   });
+  if (options.declared) workers.applyDeclared(options.declared);
   const collector = new Collector({
     db,
     blobs,
@@ -81,7 +87,7 @@ export async function testParts(
     now: options.now,
     onStored: () => judging.notify(),
   });
-  return { db, blobs, devices, collector, judging, dataDir };
+  return { db, blobs, devices, collector, judging, workers, dataDir };
 }
 
 export async function testApi(
@@ -91,7 +97,7 @@ export async function testApi(
     mode?: AuthMode;
     now?: () => number;
     fetch?: typeof fetch;
-    workerToken?: string;
+    declared?: DeclaredWorker[];
   } = {},
 ) {
   const parts = await testParts(options);
@@ -104,7 +110,7 @@ export async function testApi(
     now: options.now,
     hashOptions: FAST_HASH,
   });
-  const api = createApi({ ...parts, auth, intervalMs: 10_000, workerToken: options.workerToken });
+  const api = createApi({ ...parts, auth, intervalMs: 10_000 });
   let cookie: string | undefined;
 
   // A tiny browser: same-origin headers and a cookie jar of one.

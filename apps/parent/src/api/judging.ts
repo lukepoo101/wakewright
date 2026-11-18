@@ -2,33 +2,17 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import type { Judging } from "../judging.ts";
 import { type ApiEnv, newApi } from "./common.ts";
+import { WorkerSchema } from "./workers.ts";
 
-// Judging at a glance, for Home: whether it is set up, the workers seen,
-// how many clips wait for a judge, and the disagreements. /api/v1/judging.
-
-const Worker = z
-  .object({
-    name: z.string(),
-    version: z.string(),
-    judges: z.array(
-      z.object({
-        name: z.string(),
-        version: z.string(),
-        wakeWords: z.array(z.string()).nullable(),
-      }),
-    ),
-    lastSeenAt: z.string(),
-    /** Waiting for work now, or seen in the last two minutes. */
-    connected: z.boolean(),
-  })
-  .openapi("Worker");
+// Judging at a glance, for Home: the workers and whether they are
+// connected, how many clips wait for a judge, and the disagreements.
+// /api/v1/judging.
 
 const Status = z
   .object({
-    /** A worker token is configured, so workers can connect. */
-    configured: z.boolean(),
-    workers: z.array(Worker),
-    /** Clips still missing a result from a judge that recent workers offer. */
+    /** Every worker, declared ones first, with whether it is connected. */
+    workers: z.array(WorkerSchema),
+    /** Clips still missing a result from a judge that recent, enabled workers may run. */
     waiting: z.number().int(),
     /** Clips at least one judge has answered for. */
     judged: z.number().int(),
