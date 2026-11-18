@@ -268,16 +268,6 @@
   color: var(--color-text);
 }
 
-.typeField {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.typeField legend,
 .selectField label,
 .secretLabel {
   padding: 0;
@@ -286,22 +276,6 @@
   font-size: var(--text-small);
 }
 
-.typeChoice {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-small);
-  cursor: pointer;
-}
-
-.typeChoice:has(input:checked) {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-}
-
-.typeChoice input,
 .choice input {
   flex: none;
   width: 1.125rem;
@@ -310,11 +284,26 @@
   accent-color: var(--color-accent);
 }
 
-.typeChoice > span {
+.typeAbout {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-2);
+}
+
+.local {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0 var(--space-2);
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
 }
 
 .typeName {

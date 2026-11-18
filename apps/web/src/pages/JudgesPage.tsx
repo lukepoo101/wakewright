@@ -544,36 +544,7 @@ function JudgeForm({
 
   return (
     <form className={styles.form} onSubmit={submit} noValidate>
-      {!judge && (
-        <fieldset className={styles.typeField}>
-          <legend>Type</legend>
-          {offered.map((t) => (
-            <label key={t.id} className={styles.typeChoice}>
-              <input
-                type="radio"
-                name="type"
-                checked={t.id === typeId}
-                onChange={() => pickType(t.id)}
-              />
-              <span>
-                <span className={styles.typeName}>
-                  {t.name}
-                  {t.external && (
-                    <span className={styles.external}>
-                      <Icon name="cloud" size={14} /> Third party
-                    </span>
-                  )}
-                </span>
-                <span className={styles.hint}>
-                  {KIND_LABELS[t.kind]}
-                  {t.description && ` · ${t.description}`}
-                  {t.workers.length > 0 ? ` · on ${t.workers.join(", ")}` : ""}
-                </span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
-      )}
+      {!judge && <TypePicker types={offered} value={typeId} onChange={pickType} />}
       {type?.external && (
         <Alert tone="warning" title="This judge sends clips to a third party">
           <span>
@@ -661,6 +632,69 @@ function JudgeForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+// The type of a new judge: a drop-down grouped by kind, each option saying
+// when it sends clips to a third party, and below it what the chosen type
+// does and which workers offer it.
+function TypePicker({
+  types,
+  value,
+  onChange,
+}: {
+  types: JudgeType[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const id = useId();
+  const chosen = types.find((t) => t.id === value);
+  const kinds = (Object.keys(KIND_LABELS) as JudgeType["kind"][]).filter((k) =>
+    types.some((t) => t.kind === k),
+  );
+  return (
+    <div className={styles.selectField}>
+      <label htmlFor={id}>Type</label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={chosen ? `${id}-about` : undefined}
+      >
+        {kinds.map((kind) => (
+          <optgroup key={kind} label={KIND_LABELS[kind]}>
+            {types
+              .filter((t) => t.kind === kind)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.external ? `${t.name} (third party)` : t.name}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+      {chosen && (
+        <div id={`${id}-about`} className={styles.typeAbout}>
+          <span className={styles.typeName}>{chosen.name}</span>
+          <span className={styles.typeName}>
+            {KIND_LABELS[chosen.kind]}
+            {chosen.external ? (
+              <span className={styles.external}>
+                <Icon name="cloud" size={14} /> Sends clips to a third party
+              </span>
+            ) : (
+              <span className={styles.local}>Runs on the worker</span>
+            )}
+          </span>
+          {chosen.description && <span>{chosen.description}</span>}
+          <span className={styles.hint}>
+            {chosen.workers.length > 0
+              ? `Offered by ${chosen.workers.join(", ")}`
+              : "No worker offers it right now"}
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
