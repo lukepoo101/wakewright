@@ -5,7 +5,11 @@ import { createFakeKiosk } from "./server.ts";
 // Usage: bun devtools/fake-kiosk/src/main.ts [--port 23241] [--host 127.0.0.1]
 //   [--name kitchen] [--password dev] [--every 60] [--initial 6] [--seed 1]
 //   [--diagnostics off] [--engine vsWakeWord|microWakeWord]
+//   [--wake-words alexa,alexa] [--history microWakeWord:8:10]
 //
+// --wake-words lists the wake word slots (a real device may repeat one).
+// --history ENGINE:COUNT:DAYS starts with COUNT older clips from another
+// engine, the newest DAYS days old, as a device handing over its history.
 // --every N makes the device "hear" a clip every N seconds (every third a
 // near miss), so new clips keep arriving and the buffer rolls over.
 const { values } = parseArgs({
@@ -19,8 +23,14 @@ const { values } = parseArgs({
     seed: { type: "string", default: "1" },
     diagnostics: { type: "string", default: "on" },
     engine: { type: "string", default: "vsWakeWord" },
+    "wake-words": { type: "string" },
+    history: { type: "string" },
   },
 });
+
+const engineOf = (text: string | undefined) =>
+  text === "microWakeWord" ? "microWakeWord" : "vsWakeWord";
+const [historyEngine, historyCount, historyDays] = values.history?.split(":") ?? [];
 
 const fake = createFakeKiosk({
   name: values.name,
@@ -28,7 +38,15 @@ const fake = createFakeKiosk({
   initialClips: Number(values.initial),
   seed: Number(values.seed),
   diagnostics: values.diagnostics !== "off",
-  engine: values.engine === "microWakeWord" ? "microWakeWord" : "vsWakeWord",
+  engine: engineOf(values.engine),
+  wakeWords: values["wake-words"]?.split(","),
+  history: values.history
+    ? {
+        engine: engineOf(historyEngine),
+        count: Number(historyCount),
+        daysAgo: Number(historyDays),
+      }
+    : undefined,
 });
 const server = Bun.serve({
   hostname: values.host,

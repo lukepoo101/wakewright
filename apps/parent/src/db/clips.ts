@@ -17,6 +17,8 @@ export type ClipRow = {
   peak_db: number | null;
   rms_db: number | null;
   clipped_samples: number;
+  /** Longest run of consecutive full-scale samples; NULL until measured (clipping.ts). */
+  clipped_longest_run: number | null;
   duration_ms: number;
   sensitivity_json: string | null;
   source_meta_json: string;
@@ -50,10 +52,10 @@ export function insertClip(
       .query(
         `INSERT INTO clips (id, device_id, source_ref, audio_sha256, captured_at, ingested_at,
            capture_reason, wake_word, engine, score, threshold, peak_db, rms_db,
-           clipped_samples, duration_ms, sensitivity_json, source_meta_json)
+           clipped_samples, clipped_longest_run, duration_ms, sensitivity_json, source_meta_json)
          VALUES ($id, $device_id, $source_ref, $audio_sha256, $captured_at, $ingested_at,
            $capture_reason, $wake_word, $engine, $score, $threshold, $peak_db, $rms_db,
-           $clipped_samples, $duration_ms, $sensitivity_json, $source_meta_json)
+           $clipped_samples, $clipped_longest_run, $duration_ms, $sensitivity_json, $source_meta_json)
          ON CONFLICT (device_id, source_ref) DO NOTHING`,
       )
       .run(clip);

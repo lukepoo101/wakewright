@@ -14,7 +14,7 @@ async function collected() {
     const url = new URL(input instanceof Request ? input.url : input);
     return (url.hostname === "kitchen.test" ? kitchen : lounge).fetch(input, init);
   }) as typeof globalThis.fetch;
-  const t = await testApi({ fetch });
+  const t = await testApi({ fetch, now: () => NOW + 60_000 });
   await t.setUp();
   const ids: Record<string, string> = {};
   for (const name of ["kitchen", "lounge"]) {
@@ -70,6 +70,17 @@ describe("clips API", () => {
     expect(recent.clips.every((c: { capturedAt: string }) => c.capturedAt >= from)).toBe(true);
     expect(recent.total).toBeLessThan(12);
     expect((await t.request("/api/v1/clips?kind=other")).status).toBe(400);
+  });
+
+  test("flags a clip as clipped only for a run of full-scale samples", async () => {
+    const t = await collected();
+    const { clips } = await (await t.request("/api/v1/clips?pageSize=100")).json();
+    type C = { clippedSamples: number; clippedLongestRun: number; clipped: boolean };
+    // Each fake's fourth clip touches full scale at a single sample.
+    const touched = clips.filter((c: C) => c.clippedSamples === 1);
+    expect(touched.length).toBe(2);
+    for (const c of touched) expect(c).toMatchObject({ clippedLongestRun: 1, clipped: false });
+    expect(clips.every((c: C) => c.clipped === c.clippedLongestRun >= 3)).toBe(true);
   });
 
   test("one clip comes with its neighbours under the same filter", async () => {

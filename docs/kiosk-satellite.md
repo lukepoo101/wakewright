@@ -42,6 +42,28 @@ device card then says "Some clips may have been missed".
 collection is paused are never stored, even after you resume. Pausing does
 not change anything on the device.
 
+## What a clip shows
+
+- **Device settings then** (engine, wake words, sensitivity, fine-tune) are
+  shown only when Wakewright read them from the device within 5 minutes of
+  the moment the clip was recorded, and they name the clip's own engine.
+  Wakewright reads them again whenever new clips arrive, so a clip collected
+  as it happens has them. A device that is added hands over the clips it
+  already saved, perhaps days old and recorded under other settings; those,
+  and clips collected after a long outage, say the settings are not known.
+  [ADR 0014](adr/0014-device-settings-of-a-clip.md) explains the choice.
+- **Clipping** is the number of samples at full scale, as the device
+  counted them, always shown on the clip's page. A clip is flagged
+  **Clipped** only when at least 3 of them are in a row (Wakewright measures
+  the runs from the audio). A single full-scale sample is a peak touching
+  the limit for 1/16,000 of a second and is not audible; distortion comes
+  from the waveform being flattened against the limit, which takes
+  consecutive samples. 3 is the threshold Audacity's
+  [Find Clipping](https://manual.audacityteam.org/man/find_clipping.html)
+  uses by default.
+- **Wake words**: a device can hold the same wake word in both of its
+  slots; Wakewright lists each wake word once.
+
 ## When a device shows a problem
 
 | Message                                | What to do                                                                           |

@@ -5,6 +5,7 @@ import { schemaVersion } from "./db.ts";
 // Migrations are imported as text so they are bundled into the server build;
 // add each new file here. A test checks this list against the directory.
 import m0001 from "./migrations/0001_init.sql" with { type: "text" };
+import m0002 from "./migrations/0002_clip_settings_and_clipping.sql" with { type: "text" };
 
 export interface Migration {
   version: number;
@@ -12,7 +13,10 @@ export interface Migration {
   sql: string;
 }
 
-export const migrations: readonly Migration[] = [{ version: 1, name: "0001_init", sql: m0001 }];
+export const migrations: readonly Migration[] = [
+  { version: 1, name: "0001_init", sql: m0001 },
+  { version: 2, name: "0002_clip_settings_and_clipping", sql: m0002 },
+];
 
 export interface MigrateResult {
   from: number;

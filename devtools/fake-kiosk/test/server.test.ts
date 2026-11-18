@@ -128,6 +128,46 @@ describe("fake Kiosk Satellite", () => {
     expect(settings.find((s) => s.key === WakeSettingKeys.diagnostics)?.value).toBe(false);
   });
 
+  test("hands over older clips from an earlier engine, and settings can change", async () => {
+    const fake = createFakeKiosk({
+      now: () => NOW,
+      wakeWords: ["alexa", "alexa"],
+      history: { engine: "microWakeWord", count: 3, daysAgo: 9 },
+    });
+    const token = await login(fake);
+    const data = await list(fake, token);
+    const all = [...data.activations, ...data.nearMisses];
+    const old = all.filter((a) => a.engine === "microWakeWord");
+    expect(old).toHaveLength(3);
+    for (const a of old) {
+      expect(Date.parse(a.at)).toBeLessThanOrEqual(NOW - 9 * 86_400_000);
+      expect(a.threshold).toBe(0.6);
+    }
+    expect(all.filter((a) => a.engine === "vsWakeWord")).toHaveLength(6);
+
+    const setting = async (key: string) => {
+      const res = await fake.app.request("/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return SettingsResponse.parse(await res.json()).settings.find((s) => s.key === key)?.value;
+    };
+    expect(await setting(WakeSettingKeys.wakeWords)).toBe('["alexa","alexa"]');
+    fake.setSettings({ engine: "microWakeWord", fineTune: 3 });
+    expect(await setting(WakeSettingKeys.engine)).toBe("microwakeword");
+    expect(await setting(WakeSettingKeys.fineTune)).toBe(3);
+    expect(fake.hear().engine).toBe("microWakeWord");
+  });
+
+  test("makes some clips touch full scale at one sample and some clip", async () => {
+    const fake = createFakeKiosk({ now: () => NOW, initialClips: 7 });
+    const all = await list(fake, await login(fake));
+    const clipped = [...all.activations, ...all.nearMisses]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((a) => a.clipped);
+    expect(clipped[3]).toBe(1);
+    expect(clipped[6]).toBeGreaterThan(3);
+  });
+
   test("serves each clip as a 3 s, 16 kHz mono PCM16 WAV", async () => {
     const fake = createFakeKiosk({ now: () => NOW });
     const token = await login(fake);

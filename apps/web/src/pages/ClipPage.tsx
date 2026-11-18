@@ -1,8 +1,9 @@
+import { CLIPPED_RUN } from "@wakewright/parent/clipping-rule";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { errorMessage } from "../api.ts";
 import { AudioPlayer, type AudioPlayerHandle } from "../components/AudioPlayer.tsx";
-import { ClippedChip, KindChip, ScoreBar } from "../components/ClipBits.tsx";
+import { ClippedChip, clippingText, KindChip, ScoreBar } from "../components/ClipBits.tsx";
 import { Icon } from "../components/Icon.tsx";
 import { Alert, buttonClass, Card, Loading, PageHeader, useTitle } from "../components/ui.tsx";
 import { audioUrl, type Clip, type ClipSearch, kindLabel, useClip } from "../clips.ts";
@@ -155,6 +156,37 @@ function StepLink({
   );
 }
 
+// The device's exact count of full-scale samples, always. Only a run of
+// them is flagged as clipping (the parent's rule, in clipping.ts).
+function ClippingDetail({ clip }: { clip: Clip }) {
+  if (clip.clippedSamples === 0) return <>None</>;
+  if (clip.clipped) {
+    return (
+      <>
+        <ClippedChip clip={clip} />
+        <span className={styles.hint}>
+          {clippingText(clip)}. A run of full-scale samples flattens the waveform, which is audible
+          distortion and misleads listeners and models; lowering the microphone gain helps.
+        </span>
+      </>
+    );
+  }
+  return (
+    <>
+      {clippingText(clip)}
+      <span className={styles.hint}>
+        {clip.clippedLongestRun === null
+          ? "Not measured yet."
+          : `Isolated peaks that touch full scale are not audible clipping. Wakewright flags a clip when ${CLIPPED_RUN} or more samples in a row are at full scale.`}
+      </span>
+    </>
+  );
+}
+
+function signed(n: number): string {
+  return n > 0 ? `+${n}` : String(n);
+}
+
 function Details({ clip: c }: { clip: Clip }) {
   const db = (x: number | null) => (x === null ? "silent" : `${x.toFixed(1)} dBFS`);
   const s = c.sensitivity;
@@ -196,17 +228,7 @@ function Details({ clip: c }: { clip: Clip }) {
       </dd>
       <dt>Clipping</dt>
       <dd>
-        {c.clippedSamples > 0 ? (
-          <>
-            <ClippedChip samples={c.clippedSamples} />
-            <span className={styles.hint}>
-              {c.clippedSamples.toLocaleString("en-GB")} samples hit full scale. Clipped audio
-              misleads listeners and models; lowering the microphone gain helps.
-            </span>
-          </>
-        ) : (
-          "None"
-        )}
+        <ClippingDetail clip={c} />
       </dd>
       <dt>Length</dt>
       <dd>{(c.durationMs / 1000).toFixed(2)} s, 16 kHz mono</dd>
@@ -215,16 +237,29 @@ function Details({ clip: c }: { clip: Clip }) {
         {c.deviceName}
         {c.deviceRemoved && " (removed)"}
       </dd>
-      {s && (
-        <>
-          <dt>Device settings then</dt>
-          <dd>
-            {[s.engine, s.sensitivity, s.fineTune !== null ? `fine-tune ${s.fineTune}` : null]
-              .filter(Boolean)
-              .join(" · ") || "not reported"}
-          </dd>
-        </>
-      )}
+      <dt>Device settings then</dt>
+      <dd>
+        {s ? (
+          [
+            s.engine,
+            s.wakeWords?.join(", "),
+            s.sensitivity,
+            s.fineTune !== null ? `fine-tune ${signed(s.fineTune)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "not reported"
+        ) : (
+          <>
+            Not known
+            <span className={styles.hint}>
+              Wakewright did not read the device's settings close enough to when this clip was
+              recorded (for example, it is an older clip the device handed over when it was added),
+              so they may have been different. The wake word, engine, score and threshold above are
+              the device's own record of this clip.
+            </span>
+          </>
+        )}
+      </dd>
       <dt>Collected</dt>
       <dd>{longDateTime(c.ingestedAt)}</dd>
     </dl>

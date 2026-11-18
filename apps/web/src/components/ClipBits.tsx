@@ -5,8 +5,8 @@ import { scoreBar, scoreNumbers } from "../score.ts";
 import styles from "./ClipBits.module.css";
 import { Icon } from "./Icon.tsx";
 
-// Small pieces every clip view shares: the kind chip, the score bar and the
-// play button.
+// Small pieces every clip view shares: the kind chip, the clipped chip, the
+// score bar and the play button.
 
 export function KindChip({ kind }: { kind: Clip["kind"] }) {
   return (
@@ -17,24 +17,34 @@ export function KindChip({ kind }: { kind: Clip["kind"] }) {
   );
 }
 
-/** `labelClassName` lets a narrow layout hide the word and keep the icon. */
+/**
+ * Shown when a clip has a run of full-scale samples (the parent's rule, in
+ * clipping.ts); a few isolated full-scale samples are not flagged.
+ * `labelClassName` lets a narrow layout hide the word and keep the icon.
+ */
 export function ClippedChip({
-  samples,
+  clip,
   labelClassName = "",
 }: {
-  samples: number;
+  clip: Clip;
   labelClassName?: string;
 }) {
-  if (samples === 0) return null;
+  if (!clip.clipped) return null;
   return (
-    <span
-      className={`${styles.chip} ${styles.clipped}`}
-      title={`${samples.toLocaleString("en-GB")} samples at full scale`}
-    >
+    <span className={`${styles.chip} ${styles.clipped}`} title={clippingText(clip)}>
       <Icon name="warning" size={14} />
       <span className={labelClassName}>Clipped</span>
     </span>
   );
+}
+
+/** The device's count of full-scale samples and the longest run, in words. */
+export function clippingText(clip: Clip): string {
+  const n = clip.clippedSamples;
+  const count = `${n.toLocaleString("en-GB")} ${n === 1 ? "sample" : "samples"} at full scale`;
+  const run = clip.clippedLongestRun;
+  if (n <= 1 || run === null) return count;
+  return run === 1 ? `${count}, none next to each other` : `${count}, up to ${run} in a row`;
 }
 
 /**
