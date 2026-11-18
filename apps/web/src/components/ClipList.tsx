@@ -80,7 +80,7 @@ export function ClipList({
               <ScoreBar score={clip.score} threshold={clip.threshold} />
             </span>
             <span className={styles.flags}>
-              <ClippedChip samples={clip.clippedSamples} labelClassName={styles.clippedLabel} />
+              <ClippedChip clip={clip} labelClassName={styles.clippedLabel} />
             </span>
           </li>
         ))}

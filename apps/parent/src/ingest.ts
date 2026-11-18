@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { BlobStore } from "./blobs.ts";
+import { type SettingsSnapshot, settingsForClip } from "./clip-settings.ts";
+import { longestFullScaleRun } from "./clipping.ts";
 import { clipExists, insertClip } from "./db/clips.ts";
 import { insidePause, openPause } from "./db/collection.ts";
 import {
@@ -30,6 +32,9 @@ import { checkClipWav, WavError } from "./wav.ts";
 //   captured inside any pause window are skipped and never stored.
 // - A clip the device cannot provide as a valid 16 kHz mono PCM WAV is
 //   skipped and logged, once per run, without holding up the others.
+// - A clip keeps the device's settings only when they were read close to
+//   the moment it was recorded (clip-settings.ts); a poll that finds new
+//   clips reads the settings again first.
 
 const MAX_BACKOFF_MS = 5 * 60_000;
 /** How often to re-read a device's settings and health. */
@@ -145,15 +150,16 @@ export class Collector {
     try {
       const connection = await this.connection(device);
       let reported = parseReported(device.reported_json);
+      let readAt = device.reported_at ? Date.parse(device.reported_at) : 0;
       let reportedAt: string | null = null;
-      const lastRead = device.reported_at ? Date.parse(device.reported_at) : 0;
-      if (!reported || device.failures > 0 || this.now() - lastRead >= STATE_EVERY_MS) {
+      if (!reported || device.failures > 0 || this.now() - readAt >= STATE_EVERY_MS) {
         reported = await connection.readState();
+        readAt = this.now();
         reportedAt = iso();
       }
 
       const poll = await connection.poll(parseJson(device.cursor_json));
-      reported = { ...reported, diagnosticsEnabled: poll.diagnosticsEnabled };
+      const fresh: ClipEntry[] = [];
       for (const entry of poll.entries) {
         if (clipExists(this.db, device.id, entry.ref)) continue;
         if (insidePause(this.db, entry.capturedAt)) {
@@ -161,8 +167,21 @@ export class Collector {
           continue;
         }
         if (this.rejected.get(device.id)?.has(entry.ref)) continue;
+        fresh.push(entry);
+      }
+      // Settings describe a clip only when read close to the moment it was
+      // recorded (clip-settings.ts), so read them again for new clips
+      // unless this poll just did.
+      if (fresh.length > 0 && reportedAt === null) {
+        reported = await connection.readState();
+        readAt = this.now();
+        reportedAt = iso();
+      }
+      reported = { ...reported, diagnosticsEnabled: poll.diagnosticsEnabled };
+      for (const entry of fresh) {
         try {
-          if (await this.store(device, connection, entry, reported, iso())) stored++;
+          const settings = settingsForClip(entry, reported, readAt);
+          if (await this.store(device, connection, entry, settings, iso())) stored++;
         } catch (error) {
           // A problem with this one clip must not hold up the others; a
           // problem with the device (offline, password) ends the poll.
@@ -205,7 +224,7 @@ export class Collector {
     device: DeviceRow,
     connection: SourceConnection,
     entry: ClipEntry,
-    reported: ReportedState,
+    settings: SettingsSnapshot | null,
     ingestedAt: string,
   ): Promise<boolean> {
     const audio = await connection.fetchAudio(entry);
@@ -228,13 +247,9 @@ export class Collector {
         peak_db: entry.peakDb,
         rms_db: entry.rmsDb,
         clipped_samples: entry.clippedSamples,
+        clipped_longest_run: longestFullScaleRun(audio, wav),
         duration_ms: wav.durationMs,
-        sensitivity_json: JSON.stringify({
-          engine: reported.engine,
-          wakeWords: reported.wakeWords,
-          sensitivity: reported.sensitivity,
-          fineTune: reported.fineTune,
-        }),
+        sensitivity_json: settings === null ? null : JSON.stringify(settings),
         source_meta_json: JSON.stringify(entry.meta),
       },
       { size: blob.size, mediaType: "audio/wav" },

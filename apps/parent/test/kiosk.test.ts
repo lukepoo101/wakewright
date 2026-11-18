@@ -88,6 +88,13 @@ describe("Kiosk Satellite client", () => {
     });
   });
 
+  test("lists a wake word the device holds in both slots once", async () => {
+    const fake = createFakeKiosk({ wakeWords: ["alexa", "alexa"] });
+    expect((await connect(fake).readState()).wakeWords).toEqual(["alexa"]);
+    fake.setSettings({ wakeWords: ["hey_jarvis", "alexa", "hey_jarvis"] });
+    expect((await connect(fake).readState()).wakeWords).toEqual(["hey_jarvis", "alexa"]);
+  });
+
   test("calls only the read surface", async () => {
     const fake = createFakeKiosk();
     const connection = connect(fake);

@@ -4,6 +4,7 @@ import { createApi } from "./api/index.ts";
 import { Auth } from "./auth.ts";
 import { backupDatabase } from "./backup.ts";
 import { BlobStore } from "./blobs.ts";
+import { measureUnmeasuredClips } from "./clipping.ts";
 import type { Config } from "./config.ts";
 import { loadSecretKey, SecretBox } from "./crypto.ts";
 import { openDatabase } from "./db/db.ts";
@@ -41,6 +42,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
 
   const blobs = new BlobStore(dataDir);
   blobs.init();
+  await measureUnmeasuredClips(db, blobs, log);
   const box = await SecretBox.create(loadSecretKey(config.secretKey, dataDir, log));
   const devices = new Devices(db, box, { fetch, timeoutMs: config.collector.timeoutMs });
   const collector = new Collector({

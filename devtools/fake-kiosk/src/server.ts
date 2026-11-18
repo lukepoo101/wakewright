@@ -26,8 +26,8 @@ import { encodeWav, levels, type Signal, synthesize } from "./synth.ts";
 // - Any other /api call, every write included, fails.
 //
 // Tests and `mise run dev` drive it through `hear()` and `faults`, or over
-// HTTP under /_fake/ (outside the device's API): hear a clip, expire every
-// token, inject faults.
+// HTTP under /_fake/ (outside the device's API): hear a clip, change the
+// settings, expire every token, inject faults.
 
 export const BUFFER_SIZE = 10;
 const DAY_MS = 86_400_000;
@@ -48,6 +48,26 @@ export interface FakeKioskOptions {
   seed?: number;
   /** The wake word engine, which sets the score scale. Default vsWakeWord. */
   engine?: Engine;
+  /**
+   * The wake words in the device's slots, as `voice.wake_words` lists them.
+   * Default: the engine's one wake word. A real device can list the same
+   * word in both slots.
+   */
+  wakeWords?: string[];
+  /**
+   * Older clips already saved at start, recorded under earlier settings (as
+   * a device handing over its history when it is added): `count` clips from
+   * `engine`, the newest `daysAgo` days old, an hour apart.
+   */
+  history?: { engine: Engine; count: number; daysAgo: number };
+}
+
+/** The settings a fake device reports; change them with `setSettings`. */
+export interface FakeSettings {
+  engine: Engine;
+  wakeWords: string[];
+  sensitivity: "slightly" | "moderately" | "very";
+  fineTune: number;
 }
 
 /**
@@ -56,6 +76,7 @@ export interface FakeKioskOptions {
  */
 export type Engine = "vsWakeWord" | "microWakeWord";
 const THRESHOLDS: Record<Engine, number> = { vsWakeWord: 10.5, microWakeWord: 0.6 };
+const WAKE_WORDS: Record<Engine, string> = { vsWakeWord: "alexa", microWakeWord: "okay_nabu" };
 
 /** Faults to inject; change them at any time. */
 export interface Faults {
@@ -86,6 +107,8 @@ export interface FakeKiosk {
   /** Every token issued so far stops working, as after a long time or a new secret. */
   expireTokens(): void;
   setDiagnostics(on: boolean): void;
+  /** Changes the device's settings, as a user would in the app; later clips follow them. */
+  setSettings(change: Partial<FakeSettings>): void;
   /** Requests received, for asserting what the client called. */
   readonly calls: string[];
 }
@@ -113,8 +136,14 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   const nearMisses: Clip[] = [];
   const seed = options.seed ?? 1;
   const engine = options.engine ?? "vsWakeWord";
+  const current: FakeSettings = {
+    engine,
+    wakeWords: options.wakeWords ?? [WAKE_WORDS[engine]],
+    sensitivity: "moderately",
+    fineTune: 0,
+  };
 
-  function makeClip(at: number, nearMiss: boolean): Clip {
+  function makeClip(at: number, nearMiss: boolean, engine = current.engine): Clip {
     counter++;
     const id = Math.max(at, lastId + 1);
     lastId = id;
@@ -123,8 +152,10 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
       seed: seed * 1000 + counter,
       syllables: nearMiss ? 2 : 3,
     };
-    // Every seventh clip is loud enough to clip, as a close shout would be.
+    // Every seventh clip is loud enough to clip, as a close shout would be,
+    // and every seventh from the fourth touches full scale at one sample.
     const samples = synthesize(signal, counter % 7 === 0 ? 1.4 : 0.35);
+    if (counter % 7 === 4) touchFullScale(samples);
     const threshold = THRESHOLDS[engine];
     // A near miss reaches 75–95% of the threshold. A wake word clears it:
     // a probability by up to the scale's top (1), a vsWakeWord score by up
@@ -138,7 +169,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
       id: String(id),
       ...(nearMiss ? { nearMiss: true } : {}),
       at: new Date(id).toISOString(),
-      wakeWord: engine === "microWakeWord" ? "okay_nabu" : "alexa",
+      wakeWord: WAKE_WORDS[engine],
       engine,
       score,
       threshold,
@@ -160,6 +191,11 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   // Older clips first, so ids rise with time; every third is a near miss.
   // With diagnostics off the device keeps none.
   const initial = diagnostics ? (options.initialClips ?? 6) : 0;
+  const history = diagnostics ? options.history : undefined;
+  for (let i = history?.count ?? 0; i >= 1; i--) {
+    const at = startedAt - (history?.daysAgo ?? 0) * DAY_MS - (i - 1) * 3_600_000;
+    add(makeClip(at, i % 2 === 0, history?.engine));
+  }
   for (let i = initial; i >= 1; i--) add(makeClip(startedAt - i * 60_000, i % 3 === 0));
 
   const app = new Hono();
@@ -206,7 +242,9 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     await next();
   });
 
-  app.get("/api/settings", (c) => c.json(settings(diagnostics, engine) satisfies SettingsResponse));
+  app.get("/api/settings", (c) =>
+    c.json(settings(diagnostics, current) satisfies SettingsResponse),
+  );
 
   app.post("/api/commands/getWakeWordActivations", (c) => {
     if (faults.malformedList) return c.json({ ok: true, data: { activations: "nope" } });
@@ -237,6 +275,10 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     const body = (await c.req.json().catch(() => ({}))) as { nearMiss?: boolean };
     return c.json(hear(body));
   });
+  app.put("/_fake/settings", async (c) => {
+    setSettings((await c.req.json().catch(() => ({}))) as Partial<FakeSettings>);
+    return c.body(null, 204);
+  });
   app.post("/_fake/expire-tokens", (c) => {
     expireTokens();
     return c.body(null, 204);
@@ -259,6 +301,10 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     const clip = makeClip(now(), kind.nearMiss ?? false);
     if (diagnostics) add(clip);
     return clip.entry;
+  }
+
+  function setSettings(change: Partial<FakeSettings>) {
+    Object.assign(current, change);
   }
 
   function expireTokens() {
@@ -302,13 +348,14 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     hear,
     expireTokens,
     setDiagnostics,
+    setSettings,
     calls,
   };
 }
 
 // The few settings Wakewright reads, in the device's shape, plus one it
 // does not, as the real list has hundreds.
-function settings(diagnostics: boolean, engine: Engine): SettingsResponse {
+function settings(diagnostics: boolean, current: FakeSettings): SettingsResponse {
   const entries: SettingEntry[] = [
     {
       key: WakeSettingKeys.diagnostics,
@@ -320,7 +367,7 @@ function settings(diagnostics: boolean, engine: Engine): SettingsResponse {
       key: WakeSettingKeys.engine,
       type: "select",
       title: "Wake word engine",
-      value: engine.toLowerCase(),
+      value: current.engine.toLowerCase(),
       options: ["vswakeword", "microwakeword", "openwakeword"],
       optionLabels: {
         vswakeword: "vsWakeWord",
@@ -331,13 +378,13 @@ function settings(diagnostics: boolean, engine: Engine): SettingsResponse {
     {
       key: WakeSettingKeys.wakeWords,
       type: "string",
-      value: engine === "microWakeWord" ? '["okay_nabu"]' : '["alexa"]',
+      value: JSON.stringify(current.wakeWords),
     },
     {
       key: WakeSettingKeys.sensitivity,
       type: "select",
       title: "Wake word sensitivity",
-      value: "moderately",
+      value: current.sensitivity,
       options: ["slightly", "moderately", "very"],
       optionLabels: {
         slightly: "Slightly sensitive",
@@ -345,10 +392,26 @@ function settings(diagnostics: boolean, engine: Engine): SettingsResponse {
         very: "Very sensitive",
       },
     },
-    { key: WakeSettingKeys.fineTune, type: "number", title: "Fine-tune sensitivity", value: 0 },
+    {
+      key: WakeSettingKeys.fineTune,
+      type: "number",
+      title: "Fine-tune sensitivity",
+      value: current.fineTune,
+    },
     { key: "screen.brightness", type: "number", title: "Brightness", value: 80 },
   ];
   return { settings: entries, subpageHints: {} } as SettingsResponse;
+}
+
+// Scales a clip so its loudest sample, and only that one, sits at full scale.
+function touchFullScale(samples: Int16Array): void {
+  let loudest = 0;
+  for (let i = 1; i < samples.length; i++) {
+    if (Math.abs(samples[i] ?? 0) > Math.abs(samples[loudest] ?? 0)) loudest = i;
+  }
+  const peak = samples[loudest] ?? 0;
+  if (peak === 0) return;
+  samples[loudest] = peak > 0 ? 32767 : -32768;
 }
 
 function round(x: number): number {

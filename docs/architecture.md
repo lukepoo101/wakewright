@@ -49,7 +49,11 @@ word clips, store them, and browse and play them.
   `Source` (`source.ts`; the Kiosk Satellite adapter is in `kiosk/`), every
   10 s by default with backoff on failure, and stores each new clip once:
   audio checked as 16 kHz mono PCM WAV and written to the blob store, then
-  its row inserted, unique per device and source id. A pause toggle stops
+  its row inserted, unique per device and source id. A clip keeps the
+  device's settings only when they were read within 5 minutes of its
+  recording ([ADR 0014](adr/0014-device-settings-of-a-clip.md)), and the
+  longest run of full-scale samples is measured from its audio for the
+  clipping flag (`clipping.ts`). A pause toggle stops
   polling and skips clips captured while paused. Device passwords are
   encrypted with AES-256-GCM under a key kept outside the database
   ([ADR 0011](adr/0011-collecting-clips.md),
@@ -79,6 +83,8 @@ apps/parent/          @wakewright/parent: the server
   src/auth.ts         admin account, sessions, login throttle
   src/source.ts       the Source interface every kind of device implements
   src/ingest.ts       the collector: polling, storing clips, status, pause
+  src/clip-settings.ts which device settings a clip may claim (ADR 0014)
+  src/clipping.ts     measuring full-scale runs; clipping-rule.ts: when a clip counts as clipped
   src/devices.ts      device management: sources, encrypted passwords, testing
   src/crypto.ts       AES-256-GCM for stored secrets; the instance key
   src/blobs.ts        content-addressed blob store
@@ -111,7 +117,10 @@ The fake device in `devtools/fake-kiosk` builds its responses from the same
 `kiosk/shapes.ts`, so the client and the fake cannot drift apart silently.
 It behaves like the real app where Wakewright depends on it: a password,
 tokens that expire, login throttling, a ring buffer of 10 per kind, settings
-with wake word diagnostics on or off, and new clips over time (`hear()`).
+with wake word diagnostics on or off that can change (`setSettings()`), new
+clips over time (`hear()`), older clips from an earlier engine handed over
+at start (`history`), the same wake word in two slots, and clips that touch
+full scale at one sample or clip outright.
 Tests inject faults through `faults` (offline, slow, malformed list, invalid
 audio, a download that breaks); `mise run dev` and E2E reach the same
 controls over HTTP under `/_fake/`. Extend it alongside the client.
@@ -133,3 +142,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0011 [Collecting clips: a Source interface and an idempotent poller](adr/0011-collecting-clips.md)
 - 0012 [Device passwords encrypted with an instance key](adr/0012-device-password-encryption.md)
 - 0013 [One local admin account with server-side sessions](adr/0013-admin-account-and-sessions.md)
+- 0014 [The device settings a clip was recorded under](adr/0014-device-settings-of-a-clip.md)

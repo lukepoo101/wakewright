@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import type { BlobStore } from "../blobs.ts";
+import { isClipped } from "../clipping-rule.ts";
 import {
   type ClipFilter,
   type ClipListRow,
@@ -33,7 +34,12 @@ const Clip = z
     threshold: z.number().nullable(),
     peakDb: z.number().nullable(),
     rmsDb: z.number().nullable(),
+    /** Samples at full scale, as the device counted them. */
     clippedSamples: z.number().int(),
+    /** The longest run of consecutive full-scale samples; null until measured. */
+    clippedLongestRun: z.number().int().nullable(),
+    /** Whether the clipping is enough to flag (clipping.ts). */
+    clipped: z.boolean(),
     durationMs: z.number().int(),
     /** vsWakeWord: the phonemes it decoded, and their edit distance from the wake word. */
     decoded: z.string().nullable(),
@@ -42,7 +48,12 @@ const Clip = z
     trigger: z.string().nullable(),
     /** The device's stop word fired rather than its wake word. */
     stopWord: z.boolean(),
-    /** What the device reported running when the clip was collected. */
+    /**
+     * The device's settings when the clip was recorded: null when they are
+     * not known, because Wakewright did not read them close enough to that
+     * moment (clip-settings.ts). The clip's own engine, score and threshold
+     * are always the device's.
+     */
     sensitivity: z
       .object({
         engine: z.string().nullable(),
@@ -282,6 +293,8 @@ function toClip(row: ClipListRow): z.infer<typeof Clip> {
     peakDb: row.peak_db,
     rmsDb: row.rms_db,
     clippedSamples: row.clipped_samples,
+    clippedLongestRun: row.clipped_longest_run,
+    clipped: isClipped(row.clipped_longest_run),
     durationMs: row.duration_ms,
     decoded: text(meta.decoded),
     editDistance: num(meta.editDistance),

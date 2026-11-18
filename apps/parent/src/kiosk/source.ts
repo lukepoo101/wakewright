@@ -158,12 +158,15 @@ function label(setting: SettingEntry | undefined): string | null {
   return setting.optionLabels?.[setting.value] ?? setting.value;
 }
 
-// `voice.wake_words` holds a JSON list of model ids, slot 1 first.
-function wakeWords(value: unknown): string[] | null {
+// `voice.wake_words` holds a JSON list of model ids, slot 1 first. A device
+// may hold the same wake word in both slots; each is listed once.
+export function wakeWords(value: unknown): string[] | null {
   if (typeof value !== "string") return null;
   try {
     const list: unknown = JSON.parse(value);
-    return Array.isArray(list) && list.every((x) => typeof x === "string") ? list : null;
+    return Array.isArray(list) && list.every((x) => typeof x === "string")
+      ? [...new Set(list)]
+      : null;
   } catch {
     return null;
   }

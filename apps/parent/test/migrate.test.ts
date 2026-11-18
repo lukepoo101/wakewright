@@ -70,3 +70,89 @@ describe("migrations", () => {
     expect(db.query("SELECT name FROM sqlite_master WHERE name = 'c'").all()).toEqual([]);
   });
 });
+
+describe("0002: clip settings and clipping", () => {
+  // A 0.0.1 database with what the first real devices produced: a device
+  // added after it had saved clips, its wake word in both slots, and
+  // clips with a few isolated full-scale samples.
+  function v1Database() {
+    const db = openDatabase(":memory:");
+    migrate(db, { list: migrations.slice(0, 1) });
+    const settings = JSON.stringify({
+      engine: "vsWakeWord",
+      wakeWords: ["alexa", "alexa"],
+      sensitivity: "Very sensitive",
+      fineTune: 3,
+    });
+    db.run(
+      `INSERT INTO devices (id, name, source, config_json, reported_json, created_at, updated_at)
+       VALUES ('d1', 'Office', 'kiosk_satellite', '{}', ?, 't', 't')`,
+      [JSON.stringify({ engine: "vsWakeWord", wakeWords: ["alexa", "alexa"] })],
+    );
+    db.run(
+      `INSERT INTO blobs (sha256, size, media_type, privacy_class, created_at)
+       VALUES ('aa', 1, 'audio/wav', 'audio', 't')`,
+    );
+    const clip = db.query(
+      `INSERT INTO clips (id, device_id, source_ref, audio_sha256, captured_at, ingested_at,
+         capture_reason, wake_word, engine, score, threshold, clipped_samples, duration_ms,
+         sensitivity_json, source_meta_json)
+       VALUES (?, 'd1', ?, 'aa', ?, ?, 'near_miss', 'Alexa', ?, 1, 1, ?, 3000, ?, '{}')`,
+    );
+    const collected = "2026-11-18T01:26:53.000Z";
+    // Handed over when the device was added: recorded days before.
+    clip.run("old-micro", "1", "2026-11-08T21:10:42.108Z", collected, "microWakeWord", 0, settings);
+    clip.run("old-vs", "2", "2026-11-17T19:02:40.228Z", collected, "vsWakeWord", 25, settings);
+    // Collected 10 seconds after it was recorded.
+    clip.run("prompt", "3", "2026-11-18T01:26:43.000Z", collected, "vsWakeWord", 1, settings);
+    clip.run("no-settings", "4", "2026-11-18T01:26:43.000Z", collected, "vsWakeWord", 0, null);
+    return db;
+  }
+
+  test("keeps only settings read close to the clip, each wake word once, and keeps every clip", () => {
+    const db = v1Database();
+    migrate(db);
+    const rows = db
+      .query<
+        { id: string; sensitivity_json: string | null; clipped_longest_run: number | null },
+        []
+      >("SELECT id, sensitivity_json, clipped_longest_run FROM clips ORDER BY id")
+      .all()
+      .map((r) => ({
+        ...r,
+        sensitivity_json: r.sensitivity_json && JSON.parse(r.sensitivity_json),
+      }));
+    expect(rows).toEqual([
+      { id: "no-settings", sensitivity_json: null, clipped_longest_run: 0 },
+      { id: "old-micro", sensitivity_json: null, clipped_longest_run: 0 },
+      // NULL: measured from the audio at start-up (clipping.ts).
+      { id: "old-vs", sensitivity_json: null, clipped_longest_run: null },
+      {
+        id: "prompt",
+        sensitivity_json: {
+          engine: "vsWakeWord",
+          wakeWords: ["alexa"],
+          sensitivity: "Very sensitive",
+          fineTune: 3,
+        },
+        clipped_longest_run: null,
+      },
+    ]);
+    const device = db
+      .query<{ reported_json: string }, []>("SELECT reported_json FROM devices")
+      .get();
+    expect(JSON.parse(device?.reported_json ?? "{}").wakeWords).toEqual(["alexa"]);
+  });
+
+  test("keeps the slot order when a device has different wake words", () => {
+    const db = v1Database();
+    db.run(
+      `UPDATE devices SET reported_json = '{"wakeWords":["hey_jarvis","alexa","hey_jarvis"]}'`,
+    );
+    migrate(db);
+    const device = db
+      .query<{ reported_json: string }, []>("SELECT reported_json FROM devices")
+      .get();
+    expect(JSON.parse(device?.reported_json ?? "{}").wakeWords).toEqual(["hey_jarvis", "alexa"]);
+  });
+});
