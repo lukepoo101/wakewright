@@ -7,6 +7,18 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.0.3 - 2026-11-18
+
+### New features
+
+- Let sign-in be turned off for instances behind an authenticating proxy by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/25
+
+### Documentation
+
+- Add design documents for the project's direction by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/24
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.2...v0.0.3
+
 ## 0.0.2 - 2026-11-18
 
 ### Fixes
