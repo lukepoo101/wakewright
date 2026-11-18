@@ -62,7 +62,7 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
             value={search.kind ?? ""}
             onChange={(e) => update({ kind: (e.target.value || undefined) as ClipSearch["kind"] })}
           >
-            <option value="">Wake words and near misses</option>
+            <option value="">All kinds</option>
             <option value="fired">Wake words</option>
             <option value="near_miss">Near misses</option>
           </select>
