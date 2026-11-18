@@ -7,46 +7,34 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.0.1-rc.2 - 2026-11-18
+## 0.0.1 - 2026-11-18
 
-### CI and tooling
+### New features
 
-- Attach the build-stage SBOMs to releases and document cosign verification by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/13
-
-### Other changes
-
+- Add the admin account with first-run setup and sign-in by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/2
 - Add Kiosk Satellite devices and collect their clips by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/8
 - Browse and play collected clips, with a home dashboard by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/12
-- Document running Wakewright with Docker, its devices and privacy by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/14
+
+### Fixes
+
 - Stop repeating device error titles and shorten the kind filter by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/15
-
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.1-rc.1...v0.0.1-rc.2
-
-## 0.0.1-rc.1 - 2026-11-18
+- Fix vsWakeWord score bars, the diagnostics-off status colour and the Clipped badge spacing by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/17
 
 ### Documentation
 
 - Add CODEOWNERS, Discussions for questions, README badges and a project health page by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/7
-
-### Dependencies
-
-- Set up Renovate for npm packages, Actions, base images and the toolchain by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/3
+- Document running Wakewright with Docker, its devices and privacy by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/14
+- Renumber the duplicate ADR 0009 and point the install docs at the 0.0.1 release by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/18
 
 ### CI and tooling
 
 - Harden CI: workflow and Dockerfile lint, licence and dependency review, arm64 E2E by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/1
+- Set up Renovate for npm packages, Actions, base images and the toolchain by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/3
 - Publish multi-arch images from main and release by merging a release pull request by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/4
-- Run the publish jobs after CI on main (they were always skipped) by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/5
-- Cache Grype's database and shorten the publish job names by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/6
-- Group CI pull requests in the changelog and drop GitHub's generator comment by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/9
-- Let the release script pass the pre-push hook in its worktree by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/10
-
-### Other changes
-
-- Add the admin account with first-run setup and sign-in by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/2
+- Attach the build-stage SBOMs to releases and document cosign verification by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/13
 
 ### New contributors
 
 - @lukepoo101 made their first contribution in https://github.com/lukepoo101/wakewright/pull/1
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.0...v0.0.1-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.0...v0.0.1
