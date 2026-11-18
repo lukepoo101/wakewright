@@ -7,6 +7,14 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.3.1 - 2026-11-18
+
+### Fixes
+
+- Pause a cloud judge when the provider is out of credit by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/46
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.3.0...v0.3.1
+
 ## 0.3.0 - 2026-11-18
 
 Judges are now configurable and weighted. A new **Judges** page lists each
