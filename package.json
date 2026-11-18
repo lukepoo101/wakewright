@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "workspaces": [
     "apps/*",
-    "devtools/fake-kiosk"
+    "devtools/fake-kiosk",
+    "devtools/fake-worker"
   ],
   "scripts": {
     "build": "bun run build:web && bun run build:server",

@@ -1,0 +1,51 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-small);
+  border: 1px solid currentColor;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.waiting {
+  color: var(--color-text-muted);
+  border-style: dashed;
+  font-weight: 400;
+}
+
+.inconclusive {
+  color: var(--color-text-muted);
+}
+
+.agree_yes {
+  color: var(--color-ok);
+}
+
+.agree_no {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.disagree {
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+}
+
+.mismatch {
+  color: var(--color-error);
+  background: var(--color-error-soft);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

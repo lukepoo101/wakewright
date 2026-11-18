@@ -1,0 +1,454 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Wakewright worker API",
+    "version": "1",
+    "description": "How a worker claims clips from a Wakewright parent, downloads their audio and returns each judge's verdict. See docs/workers.md.",
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "workerToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The shared worker token, set on the parent as WAKEWRIGHT__WORKER__TOKEN."
+      }
+    },
+    "schemas": {
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job id, for posting its results."
+          },
+          "clipId": {
+            "type": "string"
+          },
+          "wakeWord": {
+            "type": "string",
+            "example": "alexa"
+          },
+          "judges": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+              "example": "openwakeword"
+            },
+            "description": "The offered judges to run on this clip, at the versions offered."
+          },
+          "leaseExpiresAt": {
+            "type": "string",
+            "description": "Results after this time are refused with 409.",
+            "example": "2026-11-18T12:02:00.000Z"
+          }
+        },
+        "required": ["id", "clipId", "wakeWord", "judges", "leaseExpiresAt"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "invalid_request"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["error", "message"]
+      },
+      "UnsupportedProtocol": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": ["unsupported_protocol"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer"
+              },
+              "max": {
+                "type": "integer"
+              }
+            },
+            "required": ["min", "max"]
+          }
+        },
+        "required": ["error", "message", "supported"]
+      },
+      "ClaimRequest": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "type": "integer",
+            "description": "The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks 1.",
+            "example": 1
+          },
+          "worker": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "example": "judge-1"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "example": "0.0.3"
+              }
+            },
+            "required": ["name", "version"],
+            "description": "Shown in the UI; one name per running worker."
+          },
+          "judges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfferedJudge"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "max": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32,
+            "default": 8,
+            "description": "The most jobs to hand out."
+          },
+          "waitSeconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 25,
+            "description": "How long to wait for work when there is none now."
+          }
+        },
+        "required": ["protocol", "worker", "judges"]
+      },
+      "OfferedJudge": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+            "example": "openwakeword"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "alexa_v0.1+1"
+          },
+          "wakeWords": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "maxItems": 200,
+            "description": "The wake words this judge has a model for, or null for any wake word.",
+            "example": ["alexa"]
+          }
+        },
+        "required": ["name", "version", "wakeWords"]
+      },
+      "JobResults": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgeResult"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "required": ["results"]
+      },
+      "JudgeResult": {
+        "type": "object",
+        "properties": {
+          "judge": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+            "example": "openwakeword"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "alexa_v0.1+1"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["yes", "no", "abstain"],
+            "description": "Does the clip contain its wake word? Abstain, with a detail, when the judge cannot say (no model, or it failed on this clip)."
+          },
+          "score": {
+            "type": ["number", "null"]
+          },
+          "threshold": {
+            "type": ["number", "null"]
+          },
+          "transcript": {
+            "type": ["string", "null"],
+            "maxLength": 2000
+          },
+          "detail": {
+            "type": ["string", "null"],
+            "maxLength": 2000
+          },
+          "durationMs": {
+            "type": "number",
+            "minimum": 0,
+            "description": "How long the judge took."
+          }
+        },
+        "required": [
+          "judge",
+          "version",
+          "verdict",
+          "score",
+          "threshold",
+          "transcript",
+          "detail",
+          "durationMs"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/worker/v1/jobs/claim": {
+      "post": {
+        "tags": ["worker"],
+        "summary": "Lease clips to judge, waiting for one when there are none (long poll)",
+        "description": "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
+        "security": [
+          {
+            "workerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Jobs, possibly none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jobs": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Job"
+                      }
+                    }
+                  },
+                  "required": ["jobs"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or the wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Judging is not set up: the parent has no worker token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "The parent does not speak this protocol version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnsupportedProtocol"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worker/v1/clips/{clipId}/audio": {
+      "get": {
+        "tags": ["worker"],
+        "summary": "A clip's audio: 16 kHz mono 16-bit PCM WAV",
+        "security": [
+          {
+            "workerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "clipId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The WAV file",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or the wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such clip, or judging is not set up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worker/v1/jobs/{id}/results": {
+      "post": {
+        "tags": ["worker"],
+        "summary": "Send a job's verdicts; ends its lease",
+        "description": "One result per judge the job named. A judge left out is offered again on a later claim. A judge that failed on the clip reports `abstain` with a `detail`, so the clip is not retried forever.",
+        "security": [
+          {
+            "workerToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobResults"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Stored"
+          },
+          "400": {
+            "description": "The request is not valid, or names a judge the job did not ask for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, or the wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Judging is not set up: the parent has no worker token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The lease has expired or belongs to another claim: claim again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

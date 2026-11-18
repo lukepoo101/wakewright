@@ -104,6 +104,10 @@
   grid-area: flags;
 }
 
+.judges {
+  grid-area: judges;
+}
+
 /* Score, engine and badge: separate grid cells on wider layouts, one line
    of their own on a phone. */
 .measure {
@@ -111,8 +115,9 @@
 }
 
 /* Narrow (a phone): three lines. The time and kind; the device name with
-   the whole width to itself; then the score, its engine and the clipped
-   badge's icon (its name stays for screen readers and in the tooltip). */
+   the whole width to itself; then the score, its engine, what the judges
+   said and the clipped badge's icon (its name stays for screen readers and
+   in the tooltip). */
 @container (width < 36rem) {
   .row {
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -140,7 +145,7 @@
     gap: var(--space-1) var(--space-3);
   }
 
-  .flags {
+  .judges {
     margin-left: auto;
   }
 
@@ -154,14 +159,15 @@
   }
 }
 
-/* Medium (Home's column on a desktop): two lines, the device name on the
-   second with the engine and any badge. */
+/* Medium (Home's column on a desktop): two lines. The time, any badge,
+   the judges and the score; then the device name, the kind under the
+   judges and the engine under its score. */
 @container (36rem <= width < 60rem) {
   .row {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
     grid-template-areas:
-      "play time kind score"
-      "play device engine flags";
+      "play time flags judges score"
+      "play device device kind engine";
     gap: var(--space-1) var(--space-4);
   }
 
@@ -181,14 +187,15 @@
     display: grid;
     grid-template-columns:
       [play] auto [time] max-content [device] minmax(8rem, 1fr)
-      [kind] max-content [score] max-content [engine] max-content [flags] max-content;
+      [kind] max-content [judges] max-content [score] max-content [engine] max-content
+      [flags] max-content;
     column-gap: var(--space-4);
   }
 
   .row {
     grid-column: 1 / -1;
     grid-template-columns: subgrid;
-    grid-template-areas: "play time device kind score engine flags";
+    grid-template-areas: "play time device kind judges score engine flags";
     padding: var(--space-2) var(--space-3);
   }
 }

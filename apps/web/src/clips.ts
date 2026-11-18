@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { InferResponseType } from "hono/client";
 import { call, v1 } from "./api.ts";
+import { isMismatch, JUDGES_FILTERS, type JudgesFilter } from "./judging.ts";
 
 // Clip queries, and the filter kept in the URL's search parameters so a
 // filtered list can be bookmarked and survives a reload.
@@ -14,6 +15,8 @@ export interface ClipSearch {
   engine?: string;
   from?: string;
   to?: string;
+  /** What the judges said: an agreement state, or a disagreement with the device. */
+  judges?: JudgesFilter;
   page?: number;
 }
 
@@ -28,6 +31,7 @@ export function parseClipSearch(raw: Record<string, unknown>): ClipSearch {
     engine: typeof raw.engine === "string" && raw.engine ? raw.engine : undefined,
     from: date(raw.from),
     to: date(raw.to),
+    judges: JUDGES_FILTERS.find((f) => f.value === raw.judges)?.value,
     page: Number.isInteger(page) && page > 1 ? page : undefined,
   };
 }
@@ -47,6 +51,11 @@ export function apiFilter(search: ClipSearch) {
     ...(search.engine ? { engine: search.engine } : {}),
     ...(search.from ? { from: day(search.from) } : {}),
     ...(search.to ? { to: day(search.to, 1) } : {}),
+    ...(search.judges
+      ? isMismatch(search.judges)
+        ? { mismatch: search.judges }
+        : { agreement: search.judges }
+      : {}),
   };
 }
 

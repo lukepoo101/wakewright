@@ -6,9 +6,9 @@ Wakewright has two kinds of process:
   metadata, later labels, datasets and the model registry), pulls clips from
   devices and serves the web UI and API. It contains no machine-learning
   libraries. TypeScript on Bun.
-- **Workers** (from a later milestone): stateless Python processes that pull
-  judging, training and evaluation jobs from the parent over HTTPS. They are
-  not part of v0.0.1.
+- **Workers**: stateless processes that pull work from the parent over
+  HTTP(S) and need no inbound port. Today they judge clips; training and
+  evaluation come later. The parent runs and shows clips with no worker.
 
 The planned design, from the workers' pull protocol to training and
 offline evaluation, is in [design/](design/).
@@ -69,7 +69,19 @@ word clips, store them, and browse and play them.
   private cache policy so the browser can seek. The SPA draws the waveform
   with wavesurfer.js from the WAV itself; lists play through one shared
   `<audio>` element. Home shows the first-run steps until the first clip
-  arrives, then collection health and the latest clips.
+  arrives, then collection health, judging and the latest clips.
+- **Judging** (`judging.ts`, `db/judging.ts`): workers call
+  `/api/worker/v1` with the shared worker token to claim clips (a long poll
+  that the collector wakes when it stores a clip), download their audio and
+  send back each judge's verdict ([workers.md](workers.md)). There is no
+  job table: a clip needs judging while it lacks a result for a
+  (judge, version) a worker offers for its wake word, and a two-minute
+  lease keeps two workers off one clip. Agreement (waiting, inconclusive,
+  agree yes or no, disagree) and disagreement with the device (likely
+  false wake, likely missed wake word) are computed in SQL from each
+  judge's latest result, so the clip list filters on them
+  ([ADR 0016](adr/0016-judging-queue-and-agreement.md)).
+  `docs/api/worker-v1.openapi.json` is the committed wire format.
 - **Backups**: `Bun.cron` runs `VACUUM INTO /data/backups/wakewright-YYYYMMDD.sqlite3`
   at 03:30 every night and keeps 14. Audio blobs are immutable, so
   file-level backup tools copy them incrementally.
@@ -88,6 +100,7 @@ apps/parent/          @wakewright/parent: the server
   src/auth.ts         admin account, sessions, login throttle
   src/source.ts       the Source interface every kind of device implements
   src/ingest.ts       the collector: polling, storing clips, status, pause
+  src/judging.ts      judging: claims and leases, the long poll, results, status
   src/clip-settings.ts which device settings a clip may claim (ADR 0014)
   src/clipping.ts     measuring full-scale runs; clipping-rule.ts: when a clip counts as clipped
   src/devices.ts      device management: sources, encrypted passwords, testing
@@ -107,11 +120,12 @@ apps/web/             @wakewright/web: the SPA
   src/player.tsx      the shared <audio> element for list playback
   src/components/     shared components (AudioPlayer: wavesurfer.js waveform)
 devtools/
-  dev.ts              `mise run dev`: parent + two fake devices
+  dev.ts              `mise run dev`: parent + two fake devices + the fake worker
   fake-kiosk/         @wakewright/fake-kiosk: fake device + synthetic clips
+  fake-worker/        @wakewright/fake-worker: a worker with deterministic fake verdicts
 deploy/docker/        parent.Dockerfile
 deploy/compose/       docker-compose.yml: the reference Compose file
-scripts/              repository checks run by `mise run check`
+scripts/              repository checks run by `mise run check`; worker-openapi.ts writes docs/api/
 tests/e2e/            Playwright: smoke tests and the first-run path against a fake device
 docs/                 this documentation and the ADRs
 ```
@@ -129,6 +143,16 @@ full scale at one sample or clip outright.
 Tests inject faults through `faults` (offline, slow, malformed list, invalid
 audio, a download that breaks); `mise run dev` and E2E reach the same
 controls over HTTP under `/_fake/`. Extend it alongside the client.
+
+## The fake worker
+
+`devtools/fake-worker` speaks the worker protocol like a real worker but
+judges nothing: each clip's verdicts are picked from a hash of its audio, so
+the fake device's synthetic clips always get the same ones and cover every
+state (all yes, all no, a disagreement, an abstention, a judge failing).
+It offers openWakeWord for "alexa" only, so clips of other wake words show
+a judge without a model. `mise run dev` runs it; tests and E2E run it
+in-process (`runFakeWorker`) and predict its verdicts with `fakeVerdicts`.
 
 ## Decisions
 
@@ -149,3 +173,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0013 [One local admin account with server-side sessions](adr/0013-admin-account-and-sessions.md)
 - 0014 [The device settings a clip was recorded under](adr/0014-device-settings-of-a-clip.md)
 - 0015 [Sign-in can be turned off for an authenticating proxy](adr/0015-sign-in-off-behind-a-proxy.md)
+- 0016 [Judging: a derived queue with leases, a shared token, unweighted agreement](adr/0016-judging-queue-and-agreement.md)

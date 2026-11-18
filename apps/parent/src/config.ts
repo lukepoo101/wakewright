@@ -11,6 +11,7 @@ import { z } from "zod";
 // `_FILE` variable (a Docker or Kubernetes secret). Setting both is an error.
 
 const MIN_PASSWORD_LENGTH = 12;
+const MIN_WORKER_TOKEN_LENGTH = 16;
 
 const Env = z.object({
   WAKEWRIGHT__SERVER__HOST: z.string().min(1).default("0.0.0.0"),
@@ -38,6 +39,10 @@ const Env = z.object({
   WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS: z.coerce.number().min(1).max(120).default(10),
   WAKEWRIGHT__SECRET_KEY: z.string().optional(),
   WAKEWRIGHT__SECRET_KEY_FILE: z.string().min(1).optional(),
+  // The token workers send to /api/worker/v1. Unset: judging is off and the
+  // worker API answers 404.
+  WAKEWRIGHT__WORKER__TOKEN: z.string().optional(),
+  WAKEWRIGHT__WORKER__TOKEN_FILE: z.string().min(1).optional(),
 });
 
 export type AuthMode = "local" | "none";
@@ -62,6 +67,8 @@ export interface Config {
    * use (and on first start create) `<data dir>/secret.key`.
    */
   secretKey?: Uint8Array;
+  /** The shared worker token; undefined while judging is not set up. */
+  worker: { token?: string };
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -87,6 +94,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
   const key = secret(e, "WAKEWRIGHT__SECRET_KEY");
+  const workerToken = secret(e, "WAKEWRIGHT__WORKER__TOKEN");
+  if (workerToken !== undefined && workerToken.trim().length < MIN_WORKER_TOKEN_LENGTH) {
+    throw new Error(
+      `Invalid configuration: WAKEWRIGHT__WORKER__TOKEN must be at least ${MIN_WORKER_TOKEN_LENGTH} characters, ` +
+        "for example the output of `openssl rand -base64 32`",
+    );
+  }
 
   return {
     server: {
@@ -106,6 +120,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     admin: { username: e.WAKEWRIGHT__ADMIN__USERNAME, password },
     secretKey: key === undefined ? undefined : parseSecretKey(key, "WAKEWRIGHT__SECRET_KEY"),
+    worker: { token: workerToken?.trim() },
   };
 }
 
@@ -132,7 +147,7 @@ export function parseSecretKey(text: string, name: string): Uint8Array {
 // `echo` and most editors add one.
 function secret(
   e: Partial<Record<string, unknown>>,
-  name: "WAKEWRIGHT__ADMIN__PASSWORD" | "WAKEWRIGHT__SECRET_KEY",
+  name: "WAKEWRIGHT__ADMIN__PASSWORD" | "WAKEWRIGHT__SECRET_KEY" | "WAKEWRIGHT__WORKER__TOKEN",
 ): string | undefined {
   const direct = e[name] as string | undefined;
   const file = e[`${name}_FILE`] as string | undefined;

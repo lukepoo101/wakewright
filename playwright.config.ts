@@ -8,6 +8,9 @@ import { defineConfig, devices } from "@playwright/test";
 // `open` project's tests: locally on openPort, in CI at E2E_OPEN_BASE_URL.
 // Against an external server without that variable the project is left out.
 //
+// The main server under test has a worker token (CI passes the same value
+// to the image), and the tests run the fake worker in-process.
+//
 // A fake Kiosk Satellite always starts on FAKE_PORT. The tests drive it at
 // 127.0.0.1; the server under test reaches it at E2E_FAKE_KIOSK_URL (CI
 // points that at the Docker host).
@@ -58,7 +61,11 @@ export default defineConfig({
         {
           command: "bun run build && bun tests/e2e/serve-dist.ts",
           url: `http://127.0.0.1:${port}/readyz`,
-          env: { WAKEWRIGHT__SERVER__PORT: String(port), WAKEWRIGHT__SERVER__HOST: "127.0.0.1" },
+          env: {
+            WAKEWRIGHT__SERVER__PORT: String(port),
+            WAKEWRIGHT__SERVER__HOST: "127.0.0.1",
+            WAKEWRIGHT__WORKER__TOKEN: "e2e-worker-token-not-secret",
+          },
           reuseExistingServer: false,
           timeout: 30_000,
         },

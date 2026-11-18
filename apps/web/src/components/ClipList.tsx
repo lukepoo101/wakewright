@@ -3,12 +3,14 @@ import type { KeyboardEvent } from "react";
 import type { Clip, ClipSearch } from "../clips.ts";
 import { shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
+import { AgreementChip } from "./Agreement.tsx";
 import { ClippedChip, EngineName, KindChip, PlayButton, ScoreBar } from "./ClipBits.tsx";
 import styles from "./ClipList.module.css";
 
 // A list of clips, newest first. Each row opens the clip; its play button
 // plays it in place. Every row names the engine beside the score, because
-// engines score on different scales. Keyboard: ↑/↓ move between rows, Space plays the
+// engines score on different scales, and what the judges said once any
+// judge has answered. Keyboard: ↑/↓ move between rows, Space plays the
 // focused row, Enter opens it.
 
 export function ClipList({
@@ -85,6 +87,9 @@ export function ClipList({
                 <ScoreBar score={clip.score} threshold={clip.threshold} />
               </span>
               <EngineName engine={clip.engine} className={styles.engine} />
+              <span className={styles.judges}>
+                {clip.judging.agreement !== "waiting" && <AgreementChip judging={clip.judging} />}
+              </span>
               <span className={styles.flags}>
                 <ClippedChip clip={clip} labelClassName={styles.clippedLabel} />
               </span>

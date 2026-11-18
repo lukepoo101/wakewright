@@ -24,6 +24,8 @@ one or the other, not both. One trailing newline in a file is ignored.
 | `WAKEWRIGHT__ADMIN__PASSWORD_FILE`        | none                          | A file holding the admin password.                                                                                                                                                                                                                |
 | `WAKEWRIGHT__SECRET_KEY`                  | generated                     | The key that encrypts stored device passwords: 32 random bytes in base64 (`openssl rand -base64 32`). Without it, Wakewright creates `secret.key` in the data directory on first start.                                                           |
 | `WAKEWRIGHT__SECRET_KEY_FILE`             | none                          | A file holding the secret key.                                                                                                                                                                                                                    |
+| `WAKEWRIGHT__WORKER__TOKEN`               | none                          | The token workers send to judge clips, at least 16 characters (`openssl rand -base64 32`). Without it judging is off: the worker API answers 404 and the UI says judging is not set up ([below](#judging)).                                       |
+| `WAKEWRIGHT__WORKER__TOKEN_FILE`          | none                          | A file holding the worker token.                                                                                                                                                                                                                  |
 | `WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS` | `10`                          | How often each device is asked for new clips (1–3600). A device keeps only its last 10 wake words and 10 near misses, so keep this well under the time it takes to hear 10.                                                                       |
 | `WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS`  | `10`                          | How long one call to a device may take before it counts as failed (1–120).                                                                                                                                                                        |
 
@@ -56,6 +58,16 @@ usual.
 `WAKEWRIGHT__ADMIN__PASSWORD(_FILE)` is refused in this mode, because it
 would protect nothing. An admin account already in the database is kept,
 so setting the mode back to `local` restores it.
+
+## Judging
+
+Workers judge each clip: does it contain its wake word? To let them, set
+`WAKEWRIGHT__WORKER__TOKEN` (or `_FILE`) to a long random value and give
+each worker the same token. Workers connect to the parent, never the other
+way round, and the token opens only the worker API (`/api/worker/v1`), not
+the web UI or its API; sign-in settings do not affect it. Changing the
+token disconnects workers until they have the new one. See
+[workers.md](workers.md) for the protocol.
 
 ## The secret key
 

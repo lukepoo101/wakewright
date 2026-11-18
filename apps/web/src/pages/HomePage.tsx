@@ -8,6 +8,7 @@ import { Alert, buttonClass, Card, Loading, PageHeader } from "../components/ui.
 import { useClipSummary, useClips } from "../clips.ts";
 import { adviceFor, type Device, deviceState, useCollection, useDevices } from "../devices.ts";
 import { ago, plural, useNow } from "../format.ts";
+import { type JudgingStatus, useJudgingStatus } from "../judging.ts";
 import styles from "./HomePage.module.css";
 
 // Home: until the first clip arrives, the steps to get there; after that,
@@ -18,6 +19,7 @@ export function HomePage() {
   const summary = useClipSummary();
   const latest = useClips({}, 5);
   const collection = useCollection();
+  const judging = useJudgingStatus();
   const now = useNow();
 
   if (devices.isPending || summary.isPending) {
@@ -111,23 +113,113 @@ export function HomePage() {
           {latest.data ? <ClipList clips={latest.data.clips} label="Latest clips" /> : <Loading />}
         </Card>
 
-        <Card>
-          <div className={styles.cardHead}>
-            <h2>Devices</h2>
-            <Link to="/devices">Manage</Link>
-          </div>
-          <ul className={styles.devices}>
-            {list.map((d) => (
-              <li key={d.id}>
-                <StatusMark state={deviceState(d, paused)} className={styles.mark} />
-                <span className={styles.deviceName}>{d.name}</span>
-                <span className={styles.deviceState}>{deviceLine(d, now, paused)}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <div className={styles.side}>
+          {judging.data && <JudgingCard status={judging.data} now={now} />}
+          <Card>
+            <div className={styles.cardHead}>
+              <h2>Devices</h2>
+              <Link to="/devices">Manage</Link>
+            </div>
+            <ul className={styles.devices}>
+              {list.map((d) => (
+                <li key={d.id}>
+                  <StatusMark state={deviceState(d, paused)} className={styles.mark} />
+                  <span className={styles.deviceName}>{d.name}</span>
+                  <span className={styles.deviceState}>{deviceLine(d, now, paused)}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
       </div>
     </>
+  );
+}
+
+// Whether a worker is judging clips, what waits, and where the judges and
+// the device disagree, each count linking to the clips it counts.
+function JudgingCard({ status, now }: { status: JudgingStatus; now: number }) {
+  const connected = status.workers.filter((w) => w.connected);
+  const last = status.workers[0];
+  let state: "ok" | "waiting" | "failing" = "waiting";
+  let line: string;
+  if (!status.configured) {
+    line = "Not set up";
+  } else if (connected.length > 0) {
+    state = "ok";
+    line =
+      connected.length === 1
+        ? `${connected[0]?.name} connected`
+        : `${connected.length} workers connected`;
+  } else if (last) {
+    state = "failing";
+    line = `No worker connected · last seen ${ago(last.lastSeenAt, now)}`;
+  } else {
+    line = "No worker has connected yet";
+  }
+
+  return (
+    <Card>
+      <div className={styles.cardHead}>
+        <h2>Judging</h2>
+      </div>
+      <p className={styles.judgingState}>
+        <StatusMark state={state} className={styles.mark} />
+        <span>{line}</span>
+      </p>
+      {state === "ok" && last && (
+        <p className={styles.judgingNote}>Last seen {ago(last.lastSeenAt, now)}</p>
+      )}
+      {!status.configured ? (
+        <p className={styles.judgingNote}>
+          Workers judge each clip automatically: does it contain its wake word? Set{" "}
+          <code>WAKEWRIGHT__WORKER__TOKEN</code> on this server and start a worker with the same
+          token.
+        </p>
+      ) : (
+        <>
+          {status.workers.length === 0 && (
+            <p className={styles.judgingNote}>
+              Start a Wakewright worker with this server's worker token, and it judges every clip.
+            </p>
+          )}
+          <p className={styles.judgingNote}>
+            {status.waiting > 0
+              ? `${plural(status.waiting, "clip")} waiting to be judged`
+              : status.judged > 0
+                ? "Every clip is judged"
+                : "Nothing to judge yet"}
+          </p>
+          {status.judged > 0 && (
+            <ul className={styles.judgingLinks}>
+              <li>
+                <Link to="/clips" search={{ judges: "disagree" }} className={styles.bigLink}>
+                  <span className={styles.bigNumber}>
+                    {status.disagree.toLocaleString("en-GB")}
+                  </span>
+                  <span className={styles.bigLabel}>
+                    {status.disagree === 1 ? "disagreement" : "disagreements"}
+                  </span>
+                </Link>
+                <span className={styles.judgingHint}>between the judges</span>
+              </li>
+              <li>
+                <Link to="/clips" search={{ judges: "false_wake" }}>
+                  {plural(status.falseWake, "likely false wake")}
+                </Link>
+                <span className={styles.judgingHint}>the device woke up, the judges say no</span>
+              </li>
+              <li>
+                <Link to="/clips" search={{ judges: "missed_wake" }}>
+                  {plural(status.missedWake, "likely missed wake word")}
+                </Link>
+                <span className={styles.judgingHint}>a near miss the judges say yes to</span>
+              </li>
+            </ul>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 

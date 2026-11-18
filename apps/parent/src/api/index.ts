@@ -5,12 +5,15 @@ import type { Auth } from "../auth.ts";
 import type { BlobStore } from "../blobs.ts";
 import type { Devices } from "../devices.ts";
 import type { Collector } from "../ingest.ts";
+import type { Judging } from "../judging.ts";
 import { version } from "../version.ts";
 import { clipRoutes } from "./clips.ts";
 import { type CookiePolicy, newApi, requireUser } from "./common.ts";
 import { deviceRoutes } from "./devices.ts";
 import { healthRoutes } from "./health.ts";
+import { judgingRoutes } from "./judging.ts";
 import { sessionRoutes } from "./session.ts";
+import { WORKER_AUTH, WORKER_BASE, workerRoutes, workerSecurityScheme } from "./worker.ts";
 
 export interface ApiDeps {
   db: Database;
@@ -18,6 +21,9 @@ export interface ApiDeps {
   devices: Devices;
   blobs: BlobStore;
   collector: Collector;
+  judging: Judging;
+  /** The shared worker token (WAKEWRIGHT__WORKER__TOKEN); no worker API without one. */
+  workerToken?: string;
   /** The collector's poll interval, shown in the UI. */
   intervalMs: number;
   /** The configured public address, if any (WAKEWRIGHT__SERVER__PUBLIC_URL). */
@@ -42,8 +48,11 @@ export function createApi(deps: ApiDeps) {
     .route("/", healthRoutes(deps.db))
     .route("/api/v1", sessionRoutes(deps.auth, policy))
     .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)))
-    .route("/api/v1", clipRoutes(deps, requireUser(deps.auth, policy)));
+    .route("/api/v1", clipRoutes(deps, requireUser(deps.auth, policy)))
+    .route("/api/v1", judgingRoutes(deps.judging, requireUser(deps.auth, policy)))
+    .route(WORKER_BASE, workerRoutes({ ...deps, token: deps.workerToken }));
 
+  app.openAPIRegistry.registerComponent("securitySchemes", WORKER_AUTH, workerSecurityScheme);
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",
     info: { title: "Wakewright", version },

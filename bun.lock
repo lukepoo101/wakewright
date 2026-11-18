@@ -52,6 +52,17 @@
         "zod": "4.6.7",
       },
     },
+    "devtools/fake-worker": {
+      "name": "@wakewright/fake-worker",
+      "version": "0.0.3",
+      "bin": {
+        "fake-worker": "./src/main.ts",
+      },
+      "devDependencies": {
+        "@wakewright/fake-kiosk": "workspace:*",
+        "@wakewright/parent": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@asteasolutions/zod-to-openapi": ["@asteasolutions/zod-to-openapi@9.1.0", "", { "dependencies": { "openapi3-ts": "^4.6.0" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw=="],
@@ -147,6 +158,8 @@
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
     "@wakewright/fake-kiosk": ["@wakewright/fake-kiosk@workspace:devtools/fake-kiosk"],
+
+    "@wakewright/fake-worker": ["@wakewright/fake-worker@workspace:devtools/fake-worker"],
 
     "@wakewright/parent": ["@wakewright/parent@workspace:apps/parent"],
 

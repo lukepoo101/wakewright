@@ -5,6 +5,7 @@ import { errorMessage } from "../api.ts";
 import { AudioPlayer, type AudioPlayerHandle } from "../components/AudioPlayer.tsx";
 import { ClippedChip, clippingText, KindChip, ScoreBar } from "../components/ClipBits.tsx";
 import { Icon } from "../components/Icon.tsx";
+import { JudgesCard } from "../components/JudgesCard.tsx";
 import { Alert, buttonClass, Card, Loading, PageHeader, useTitle } from "../components/ui.tsx";
 import { audioUrl, type Clip, type ClipSearch, kindLabel, useClip } from "../clips.ts";
 import { longDateTime, shortDateTime } from "../format.ts";
@@ -101,6 +102,8 @@ export function ClipPage({ clipId, search }: { clipId: string; search: ClipSearc
           </a>
         </div>
       </Card>
+
+      <JudgesCard clip={c} judges={clip.data.judges} />
 
       <Card>
         <h2 className={styles.sectionTitle}>What the device reported</h2>

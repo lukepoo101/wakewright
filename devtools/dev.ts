@@ -1,18 +1,25 @@
-// `mise run dev`: the parent's development entry (HMR, data in .dev-data/)
-// and two fake Kiosk Satellite devices (password `dev`) that hear a new clip
-// every 45 and 70 seconds, with prefixed logs. The kitchen runs vsWakeWord
-// with the same wake word in both slots, and hands over older clips its
-// earlier microWakeWord recorded; the lounge runs microWakeWord. So both
-// score scales show, side by side. Ctrl-C stops all.
+// `mise run dev`: the parent's development entry (HMR, data in .dev-data/),
+// two fake Kiosk Satellite devices (password `dev`) that hear a new clip
+// every 45 and 70 seconds, and a fake worker that judges every clip, with
+// prefixed logs. The kitchen runs vsWakeWord with the same wake word in both
+// slots, and hands over older clips its earlier microWakeWord recorded; the
+// lounge runs microWakeWord. So both score scales show, side by side. The
+// fake worker's verdicts cover every agreement state. Ctrl-C stops all.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
+/** Not a secret: the development parent and fake worker share it. */
+const WORKER_TOKEN = "dev-worker-token-not-secret";
 
 const processes = [
   {
     name: "parent",
     cmd: ["bun", "--watch", "apps/parent/src/dev.ts"],
-    env: { WAKEWRIGHT__STORAGE__DATA_DIR: ".dev-data", WAKEWRIGHT__LOG__LEVEL: "debug" },
+    env: {
+      WAKEWRIGHT__STORAGE__DATA_DIR: ".dev-data",
+      WAKEWRIGHT__LOG__LEVEL: "debug",
+      WAKEWRIGHT__WORKER__TOKEN: WORKER_TOKEN,
+    },
   },
   {
     name: "kitchen",
@@ -31,6 +38,11 @@ const processes = [
       ...["--port", "23242", "--name", "Lounge wall tablet", "--seed", "2", "--every", "70"],
       ...["--engine", "microWakeWord"],
     ],
+  },
+  {
+    name: "worker",
+    cmd: ["bun", "devtools/fake-worker/src/main.ts", "--parent", "http://127.0.0.1:8080"],
+    env: { WAKEWRIGHT_WORKER__TOKEN: WORKER_TOKEN },
   },
 ];
 
