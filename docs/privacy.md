@@ -13,7 +13,9 @@ anyone in the room, including guests and children.
   removing the data volume removes everything.)
 - **Pause** in the top bar stops collection at once. Clips a device saves
   while paused are never stored. Pausing changes nothing on the device.
-- **Behind a login.** The web UI and every clip need the admin account.
+- **Behind a login.** The web UI and every clip need the admin account,
+  or, with `WAKEWRIGHT__AUTH__MODE=none`, the sign-in of the reverse proxy
+  in front of it.
   Audio is served with `Cache-Control: private`, so shared caches do not
   keep it.
 - **Device passwords** are stored encrypted with a key that is not in the

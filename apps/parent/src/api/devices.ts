@@ -299,7 +299,7 @@ export function deviceRoutes(deps: DeviceRoutesDeps, guard: MiddlewareHandler<Ap
     .openapi(routes.setCollection, (c) => {
       const at = new Date().toISOString();
       if (c.req.valid("json").paused) {
-        startPause(db, { id: Bun.randomUUIDv7(), at, userId: c.var.user.id });
+        startPause(db, { id: Bun.randomUUIDv7(), at, userId: c.var.user?.id ?? null });
       } else if (openPause(db)) {
         endPause(db, at);
         collector.wake();

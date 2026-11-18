@@ -209,6 +209,68 @@ describe("admin password from configuration", () => {
   });
 });
 
+describe("sign-in off (auth mode none)", () => {
+  test("the session is open, with no setup and no cookie", async () => {
+    const t = await testApi({ mode: "none" });
+    const res = await t.request("/api/v1/session");
+    expect(await res.json()).toEqual({ state: "open", managed: false });
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  test("the API answers without a session; pausing records no user", async () => {
+    const t = await testApi({ mode: "none" });
+    expect((await t.request("/api/v1/devices")).status).toBe(200);
+    expect((await t.request("/api/v1/clips")).status).toBe(200);
+    const paused = await t.request("/api/v1/collection", { method: "PUT", json: { paused: true } });
+    expect(paused.status).toBe(200);
+    expect(t.db.query("SELECT started_by FROM collection_pauses").get()).toEqual({
+      started_by: null,
+    });
+    expect(t.cookie).toBeUndefined();
+  });
+
+  test("setup, sign-in and sign-out answer 409 and create nothing", async () => {
+    const t = await testApi({ mode: "none" });
+    const credentials = { json: { username: "admin", password: PASSWORD } };
+    for (const res of [
+      await t.request("/api/v1/setup", credentials),
+      await t.request("/api/v1/session", credentials),
+      await t.request("/api/v1/session", { method: "DELETE" }),
+    ]) {
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("auth_off");
+    }
+    expect(t.db.query("SELECT count(*) AS n FROM users").get()).toEqual({ n: 0 });
+    expect(t.cookie).toBeUndefined();
+  });
+
+  test("cross-site writes are still refused", async () => {
+    const t = await testApi({ mode: "none" });
+    const res = await t.api.request(`${ORIGIN}/api/v1/collection`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Sec-Fetch-Site": "cross-site",
+        Origin: "http://evil.example",
+      },
+      body: "paused=true",
+    });
+    expect(res.status).toBe(403);
+    const json = await t.api.request(`${ORIGIN}/api/v1/collection`, {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain", "Sec-Fetch-Site": "same-origin" },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(json.status).toBe(415);
+  });
+
+  test("health checks stay open", async () => {
+    const t = await testApi({ mode: "none" });
+    expect((await t.request("/healthz")).status).toBe(200);
+    expect((await t.request("/readyz")).status).toBe(200);
+  });
+});
+
 describe("LoginThrottle", () => {
   test("doubles the lock after the free failures, caps it, and forgets", () => {
     let now = 0;

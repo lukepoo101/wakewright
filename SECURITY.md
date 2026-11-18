@@ -23,6 +23,10 @@ Anything that could expose clips or device credentials, let someone reach
 the API without logging in, make the parent write to a device, or run code
 in the parent or a worker is security-sensitive.
 
+With `WAKEWRIGHT__AUTH__MODE=none` sign-in is off by design and the API is
+open to anyone who can reach the port; access through that port is not a
+vulnerability. Bypassing the same-origin checks in that mode is.
+
 ## Verifying what you run
 
 Every published image has a signed build provenance attestation and an

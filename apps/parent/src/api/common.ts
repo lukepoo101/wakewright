@@ -8,7 +8,8 @@ import type { Auth, User } from "../auth.ts";
 // cookie and the sign-in guard.
 
 export interface ApiEnv {
-  Variables: { user: User };
+  /** The signed-in user, or null when sign-in is off (auth mode "none"). */
+  Variables: { user: User | null };
 }
 
 export const ErrorBody = z
@@ -58,9 +59,16 @@ export function sessionToken(c: Context): string | undefined {
   return getCookie(c, SESSION_COOKIE);
 }
 
-/** Answers 401 unless the request carries a valid session; sets `user`. */
+/**
+ * Answers 401 unless the request carries a valid session; sets `user`.
+ * With sign-in off (auth mode "none") every request passes, as no user.
+ */
 export function requireUser(auth: Auth, policy: CookiePolicy): MiddlewareHandler<ApiEnv> {
   return async (c, next) => {
+    if (auth.mode === "none") {
+      c.set("user", null);
+      return next();
+    }
     const token = sessionToken(c);
     const session = auth.authenticate(token);
     if (!session || !token) {

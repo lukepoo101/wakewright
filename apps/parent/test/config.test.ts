@@ -65,3 +65,26 @@ describe("secrets", () => {
     expect(() => loadConfig({ WAKEWRIGHT__SERVER__PUBLIC_URL: "ftp://x" })).toThrow();
   });
 });
+
+describe("auth mode", () => {
+  test("is local by default", () => {
+    expect(loadConfig({}).auth.mode).toBe("local");
+  });
+
+  test("none turns sign-in off", () => {
+    expect(loadConfig({ WAKEWRIGHT__AUTH__MODE: "none" }).auth.mode).toBe("none");
+  });
+
+  test("rejects an unknown mode", () => {
+    expect(() => loadConfig({ WAKEWRIGHT__AUTH__MODE: "proxy" })).toThrow(/WAKEWRIGHT__AUTH__MODE/);
+  });
+
+  test("none refuses an admin password, which would protect nothing", () => {
+    expect(() =>
+      loadConfig({
+        WAKEWRIGHT__AUTH__MODE: "none",
+        WAKEWRIGHT__ADMIN__PASSWORD: "a long admin password",
+      }),
+    ).toThrow(/has no effect when WAKEWRIGHT__AUTH__MODE is none/);
+  });
+});

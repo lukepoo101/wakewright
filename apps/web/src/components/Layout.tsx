@@ -7,7 +7,8 @@ import styles from "./Layout.module.css";
 import { Button } from "./ui.tsx";
 
 // The app shell: a top bar (brand, status, theme, sign out), a labelled
-// rail on wide screens and a bottom bar on phones.
+// rail on wide screens and a bottom bar on phones. Sign out is left out when
+// the server has sign-in off.
 
 const nav: { to: "/" | "/clips" | "/devices"; label: string; icon: IconName }[] = [
   { to: "/", label: "Home", icon: "home" },
@@ -39,7 +40,16 @@ export function ThemeButton() {
   );
 }
 
-export function Layout({ children, status }: { children: ReactNode; status?: ReactNode }) {
+export function Layout({
+  children,
+  status,
+  signOut: showSignOut,
+}: {
+  children: ReactNode;
+  status?: ReactNode;
+  /** Show the sign-out button; false when the server has sign-in off. */
+  signOut: boolean;
+}) {
   const signOut = useSignOut();
   return (
     <div className={styles.shell}>
@@ -54,13 +64,15 @@ export function Layout({ children, status }: { children: ReactNode; status?: Rea
         <div className={styles.status}>{status}</div>
         <div className={styles.tools}>
           <ThemeButton />
-          <Button
-            variant="ghost"
-            icon="signOut"
-            label="Sign out"
-            onClick={() => signOut.mutate()}
-            disabled={signOut.isPending}
-          />
+          {showSignOut && (
+            <Button
+              variant="ghost"
+              icon="signOut"
+              label="Sign out"
+              onClick={() => signOut.mutate()}
+              disabled={signOut.isPending}
+            />
+          )}
         </div>
       </header>
       <nav className={styles.nav} aria-label="Main">

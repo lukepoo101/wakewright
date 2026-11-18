@@ -12,6 +12,8 @@ import {
 } from "./common.ts";
 
 // Sign-in, sign-out and first-run setup: /api/v1/session and /api/v1/setup.
+// With sign-in off (auth mode "none") the session is always "open" and the
+// rest answer 409.
 
 const Username = z
   .string()
@@ -26,7 +28,8 @@ const SessionUser = z.object({ username: z.string() }).openapi("SessionUser");
 
 const SessionState = z
   .object({
-    state: z.enum(["setup", "signed_out", "signed_in"]),
+    /** "open": sign-in is off (WAKEWRIGHT__AUTH__MODE=none); the app is usable as is. */
+    state: z.enum(["setup", "signed_out", "signed_in", "open"]),
     user: SessionUser.optional(),
     /** True when the admin password is set by configuration, not in the UI. */
     managed: z.boolean(),
@@ -58,6 +61,7 @@ const signIn = createRoute({
   responses: {
     200: { description: "Signed in", content: { "application/json": { schema: SessionUser } } },
     401: errorContent("Wrong username or password"),
+    409: errorContent("Sign-in is off on this server"),
     429: errorContent("Too many failed attempts; see Retry-After"),
   },
 });
@@ -67,7 +71,10 @@ const signOut = createRoute({
   path: "/session",
   tags: ["session"],
   summary: "Sign out; ends the session",
-  responses: { 204: { description: "Signed out" } },
+  responses: {
+    204: { description: "Signed out" },
+    409: errorContent("Sign-in is off on this server"),
+  },
 });
 
 const setup = createRoute({
@@ -78,14 +85,22 @@ const setup = createRoute({
   request: { body: { required: true, content: { "application/json": { schema: SetupRequest } } } },
   responses: {
     201: { description: "Created", content: { "application/json": { schema: SessionUser } } },
-    409: errorContent("Setup is already done, or the password is set by configuration"),
+    409: errorContent(
+      "Setup is already done, the password is set by configuration, or sign-in is off",
+    ),
   },
 });
+
+const authOff = {
+  error: "auth_off",
+  message: "Sign-in is off on this server (WAKEWRIGHT__AUTH__MODE is none).",
+} as const;
 
 export function sessionRoutes(auth: Auth, policy: CookiePolicy) {
   return newApi()
     .openapi(getSession, (c) => {
       const managed = auth.managed;
+      if (auth.mode === "none") return c.json({ state: "open" as const, managed }, 200);
       if (auth.state() === "setup") return c.json({ state: "setup" as const, managed }, 200);
       const session = auth.authenticate(sessionToken(c));
       if (!session) return c.json({ state: "signed_out" as const, managed }, 200);
@@ -95,6 +110,7 @@ export function sessionRoutes(auth: Auth, policy: CookiePolicy) {
       );
     })
     .openapi(signIn, async (c) => {
+      if (auth.mode === "none") return c.json(authOff, 409);
       const { username, password } = c.req.valid("json");
       const result = await auth.login(username, password, clientAddress(c));
       if (!result.ok) {
@@ -117,11 +133,13 @@ export function sessionRoutes(auth: Auth, policy: CookiePolicy) {
       return c.json({ username: result.user.username }, 200);
     })
     .openapi(signOut, (c) => {
+      if (auth.mode === "none") return c.json(authOff, 409);
       auth.logout(sessionToken(c));
       clearSessionCookie(c);
       return c.body(null, 204);
     })
     .openapi(setup, async (c) => {
+      if (auth.mode === "none") return c.json(authOff, 409);
       const { username, password } = c.req.valid("json");
       const result = await auth.setup(username, password);
       if (!result.ok) {
