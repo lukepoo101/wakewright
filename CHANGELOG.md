@@ -7,13 +7,37 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.3.0-rc.1 - 2026-11-18
+## 0.3.0 - 2026-11-18
+
+Judges are now configurable and weighted. A new **Judges** page lists each
+judge with its weight, health and runs in the last 24 hours; add judges of
+any type a worker offers (the form comes from the type), set weights and
+daily limits, test a judge on one clip, turn it off or delete it. Two
+cloud speech-to-text types are new: **OpenAI-compatible transcription**
+(OpenAI, Groq, LiteLLM, self-hosted Whisper servers) and **ElevenLabs
+Scribe**; none is set up by default, and API keys are stored encrypted and
+never shown again. Each clip now has a **weighted outcome** (yes, no,
+uncertain, not enough evidence, waiting) with a confidence, replacing "2 of
+3 yes"; the Uncertain filter replaces Disagreements. See
+[docs/judges.md](docs/judges.md).
+
+Upgrading from 0.2:
+
+- Upgrade the parent and every worker together: they speak worker
+  protocol 2 now, and a 0.2 worker is refused until it is upgraded.
+- The database migration turns the three judges into judges on the Judges
+  page with weights 1.0 (speech to text) and 0.3 (openWakeWord,
+  microWakeWord), keeps every verdict and judges nothing again.
+- A worker's "may run" list now names judge types; the three names are
+  unchanged. Workers offer the cloud types by default, but they run only
+  for judges you add; leave them out of `WAKEWRIGHT_WORKER__JUDGES` to make
+  sure a worker never sends clips to a cloud service.
 
 ### Breaking changes
 
 - Configure weighted judges on a Judges page, with cloud speech-to-text judges by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/42
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.2.0...v0.3.0-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.2.0...v0.3.0
 
 ## 0.2.0 - 2026-11-18
 
