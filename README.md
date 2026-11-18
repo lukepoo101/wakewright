@@ -43,7 +43,8 @@ changes its settings or installs anything on it.
 The **parent** is one TypeScript process on [Bun](https://bun.com): a
 [Hono](https://hono.dev) API, the React SPA it serves, and SQLite. Python
 **workers** for judging and training come in later versions. See
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](docs/architecture.md), and
+[docs/design/](docs/design/) for where the project is going and why.
 
 ## Development quick start
 
