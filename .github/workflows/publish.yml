@@ -146,7 +146,9 @@ jobs:
       - name: Upload the digest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          # Architecture first: a pattern of digest-*-wakewright cannot also
+          # match the wakewright-worker digests.
+          name: digest-${{ matrix.arch }}-${{ matrix.image }}
           path: ${{ runner.temp }}/digests/*
           retention-days: 1
           if-no-files-found: error
@@ -183,7 +185,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digest-${{ matrix.image }}-*
+          pattern: digest-*-${{ matrix.image }}
           merge-multiple: true
 
       - name: Set up Buildx
