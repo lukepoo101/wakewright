@@ -1,0 +1,125 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Policy and reasons: docs/dependency-updates.md",
+  "extends": ["config:best-practices", ":semanticCommitsDisabled"],
+  "timezone": "Europe/London",
+  "labels": ["dependencies"],
+  "prCreation": "immediate",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 10,
+  "rebaseWhen": "behind-base-branch",
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "platformAutomerge": true,
+  "separateMajorMinor": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 0-6 * * 1"],
+    "automerge": true
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": [],
+    "minimumReleaseAge": null,
+    "automerge": true,
+    "labels": ["dependencies", "security"]
+  },
+  "packageRules": [
+    {
+      "description": "Exact versions in every package.json (bunfig.toml also sets exact = true).",
+      "matchManagers": ["bun", "npm"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Automerge non-major updates once CI OK passes, including 0.x minors; CI is the reviewer.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "A 0.0.x package may break on any release: review it.",
+      "matchCurrentVersion": "/^0\\.0\\./",
+      "matchUpdateTypes": ["patch"],
+      "automerge": false
+    },
+    {
+      "description": "Majors, replacements and rollbacks are reviewed by a person.",
+      "matchUpdateTypes": ["major", "replacement", "rollback"],
+      "automerge": false
+    },
+    {
+      "description": "Batch routine npm updates into one pull request.",
+      "matchManagers": ["bun", "npm"],
+      "matchUpdateTypes": ["minor", "patch", "pin"],
+      "matchPackageNames": ["!@types/bun", "!typescript"],
+      "groupName": "npm dependencies"
+    },
+    {
+      "description": "Bun, its types, TypeScript and the oven/bun base images move together: scripts/check-versions.ts fails when they differ.",
+      "matchPackageNames": ["bun", "oven/bun", "@types/bun", "typescript"],
+      "groupName": "Bun and TypeScript",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Base image digest refreshes (security rebuilds) need no release delay.",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "minimumReleaseAge": null
+    },
+    {
+      "description": "GitHub Actions: one grouped pull request, a week after release.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "GitHub Actions",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Majors of Actions that pull request CI runs are proven by that CI; publish-only Actions run only on main, so their majors stay on review.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"],
+      "matchPackageNames": [
+        "!docker/login-action",
+        "!docker/metadata-action",
+        "!actions/attest-build-provenance",
+        "!anchore/scan-action",
+        "!actions/download-artifact",
+        "!ossf/scorecard-action",
+        "!github/codeql-action"
+      ],
+      "minimumReleaseAge": "7 days",
+      "automerge": true
+    },
+    {
+      "description": "Linters and mise itself: one grouped pull request, a week after release.",
+      "matchPackageNames": ["actionlint", "hadolint", "shellcheck", "zizmor", "jdx/mise"],
+      "groupName": "CI tools",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Renovate releases many times a day; refresh the config validator once a month instead of one pull request per release.",
+      "matchPackageNames": ["renovate"],
+      "schedule": ["* 0-6 1 * *"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Renovate version that validates this file in mise run check.",
+      "managerFilePatterns": ["/^mise\\.toml$/"],
+      "matchStrings": ["--package (?<depName>renovate)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "The mise release that CI workflows install.",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["MISE_VERSION: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "versioningTemplate": "loose"
+    }
+  ]
+}
