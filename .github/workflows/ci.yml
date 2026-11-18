@@ -91,6 +91,9 @@ jobs:
       contents: read
     env:
       IMAGE: wakewright:ci
+      # The build summary in the job page is enough; skip uploading a build
+      # record artifact on every run.
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -224,7 +227,10 @@ jobs:
   publish:
     name: Publish
     needs: ci-ok
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The explicit result check is needed: a bare condition implies
+    # success(), which is false whenever any job upstream was skipped (as
+    # dependency review is on pushes).
+    if: ${{ !cancelled() && needs.ci-ok.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     # One publish at a time, in order. A queued run that a newer push
     # replaces is not lost work: the newer commit publishes `edge` and, if
     # its version is still untagged, the release.
