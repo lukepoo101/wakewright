@@ -1,6 +1,6 @@
-"""Fake judges for tests: `wakewright-worker run --fake-judges`.
+"""Fake judge types for tests: `wakewright-worker run --fake-judges`.
 
-They have the real judges' names and wake words but load no model and
+They have the built-in types' ids and wake words but load no model and
 answer from a hash of the audio, so the same clip always gets the same
 verdicts and a handful of clips covers agreement and disagreement. They let
 the real job loop run against a real parent (`mise run integration`, CI)
@@ -13,27 +13,25 @@ from __future__ import annotations
 import hashlib
 
 from wakewright_worker.audio import Clip
-from wakewright_worker.judges import Judge, JudgeResult
-from wakewright_worker.models import ModelFile
+from wakewright_worker.judges import JudgeResult, JudgeType, Kind, Settings
 
 VERSION = "fake+1"
 
 
-class FakeJudge:
+class FakeJudge(JudgeType):
     version = VERSION
 
-    def __init__(self, name: str, salt: int, wake_words: frozenset[str] | None) -> None:
-        self.name = name
+    def __init__(
+        self, type_id: str, name: str, salt: int, wake_words: frozenset[str] | None
+    ) -> None:
+        self.id = type_id
+        self.name = f"{name} (fake)"
+        self.kind: Kind = "speech_to_text" if wake_words is None else "wake_word_model"
+        self.description = "Answers from a hash of the audio; for tests."
         self._salt = salt
         self.wake_words = wake_words
 
-    def model_files(self) -> list[ModelFile]:
-        return []
-
-    def prepare(self) -> None:
-        return
-
-    def judge(self, clip: Clip) -> JudgeResult:
+    def judge(self, clip: Clip, settings: Settings) -> JudgeResult:
         digest = hashlib.sha256(clip.pcm).digest()
         score = round(digest[self._salt] / 255, 4)
         verdict = "yes" if score >= 0.5 else "no"
@@ -43,10 +41,10 @@ class FakeJudge:
         return JudgeResult(verdict, score=score, threshold=0.5)
 
 
-def fake_judges() -> list[Judge]:
+def fake_judges() -> list[JudgeType]:
     words = frozenset({"alexa", "hey jarvis", "okay nabu"})
     return [
-        FakeJudge("openwakeword", 0, words),
-        FakeJudge("microwakeword", 1, words),
-        FakeJudge("stt", 2, None),
+        FakeJudge("openwakeword", "openWakeWord", 0, words),
+        FakeJudge("microwakeword", "microWakeWord", 1, words),
+        FakeJudge("stt", "Speech to text", 2, None),
     ]

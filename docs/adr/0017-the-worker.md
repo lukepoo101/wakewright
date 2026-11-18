@@ -1,6 +1,7 @@
 # 0017 The worker: Python with uv, three downloaded judges, a second image
 
-- Status: accepted
+- Status: accepted; the three fixed judges became judge types among
+  others in [ADR 0019](0019-configurable-weighted-judges.md)
 - Date: 2026-11-18
 - Amends: [0006](0006-tooling.md) (Python tooling), [0009](0009-ci-checks-and-fork-safety.md)
   (path filters), [0010](0010-releases-changelog-and-images.md) (two images)

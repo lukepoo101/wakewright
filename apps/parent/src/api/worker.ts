@@ -2,13 +2,14 @@ import type { Database } from "bun:sqlite";
 import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import type { BlobStore } from "../blobs.ts";
-import { getClip } from "../db/clips.ts";
+import { getClipRow } from "../db/clips.ts";
 import { type Judging, PROTOCOL } from "../judging.ts";
 import type { WorkerIdentity, Workers } from "../workers.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
-// The worker API, /api/worker/v1: workers claim clips to judge (a long
-// poll), download their audio and send back each judge's verdict. It is
+// The worker API, /api/worker/v1 (protocol 2): workers advertise the judge
+// types they offer and claim clips to judge (a long poll), download their
+// audio and send back each judge's result. It is
 // authenticated only by a worker's own token (ADR 0018), never by a user
 // session. docs/workers.md describes it for people writing a worker;
 // docs/api/worker-v1.openapi.json is the committed document
@@ -28,29 +29,79 @@ interface WorkerEnv extends ApiEnv {
   Variables: ApiEnv["Variables"] & { worker: WorkerIdentity };
 }
 
-const Name = z
+const TypeId = z
   .string()
   .regex(
     /^[a-z0-9][a-z0-9_.-]{0,63}$/,
     "1–64 lower-case letters, digits, dots, dashes or underscores",
   )
-  .openapi({ example: "openwakeword" });
-const Version = z.string().min(1).max(100).openapi({ example: "alexa_v0.1+1" });
+  .openapi({ example: "openai-compatible" });
+const Version = z.string().min(1).max(100).openapi({ example: "openai-compatible+1" });
+const InstanceId = z.string().min(1).max(100).openapi({
+  description: "A judge (instance) the owner configured on the parent's Judges page.",
+  example: "0198f6a2-7c41-7b8e-9d1a-4f2b3c5d6e7f",
+});
 
-const OfferedJudge = z
+const SettingValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+const SettingField = z
   .object({
-    name: Name,
-    version: Version,
-    wakeWords: z
-      .array(z.string().min(1).max(64))
-      .max(200)
-      .nullable()
-      .openapi({
-        description: "The wake words this judge has a model for, or null for any wake word.",
-        example: ["alexa"],
-      }),
+    key: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{0,63}$/)
+      .openapi({ example: "model" }),
+    label: z.string().min(1).max(100).openapi({ example: "Model" }),
+    type: z.enum(["text", "secret", "number", "select", "boolean"]).openapi({
+      description:
+        "How the form shows it. A secret (an API key) is stored encrypted and never shown again.",
+    }),
+    help: z.string().max(1000).default(""),
+    default: SettingValue.default(null),
+    required: z.boolean().default(false),
+    options: z
+      .array(z.object({ value: z.string().max(200), label: z.string().max(200) }))
+      .max(100)
+      .default([])
+      .openapi({ description: "The choices of a select." }),
+    minimum: z.number().nullable().default(null),
+    maximum: z.number().nullable().default(null),
+    placeholder: z.string().max(200).default(""),
+    affectsVerdict: z.boolean().default(true).openapi({
+      description:
+        "Whether changing it can change a verdict. If so, changing it judges every clip again. Ignored for a secret, which never does.",
+    }),
   })
-  .openapi("OfferedJudge");
+  .transform((f) => ({ ...f, affectsVerdict: f.type !== "secret" && f.affectsVerdict }))
+  .openapi("SettingField");
+
+const OfferedType = z
+  .object({
+    id: TypeId,
+    version: Version.openapi({
+      description:
+        "Changes whenever the type's model or logic changes in a way that can change a verdict; every clip is then judged again.",
+    }),
+    name: z.string().min(1).max(100).openapi({ example: "OpenAI-compatible transcription" }),
+    kind: z.enum(["wake_word_model", "speech_to_text"]),
+    description: z.string().max(1000).default(""),
+    external: z.boolean().default(false).openapi({
+      description:
+        "True when the type sends clips to a service outside the worker; the UI warns before such a judge is turned on.",
+    }),
+    wakeWords: z.array(z.string().min(1).max(64)).max(200).nullable().openapi({
+      description: "The wake words this type has a model for, or null for any wake word.",
+      example: null,
+    }),
+    settings: z
+      .array(SettingField)
+      .max(30)
+      .default([])
+      .refine((fs) => new Set(fs.map((f) => f.key)).size === fs.length, {
+        message: "Each setting key may appear once.",
+      })
+      .openapi({ description: "The form the Judges page shows for a judge of this type." }),
+  })
+  .openapi("OfferedType");
 
 const ClaimRequest = z
   .object({
@@ -59,24 +110,25 @@ const ClaimRequest = z
       .int()
       .openapi({
         description: `The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks ${PROTOCOL.min === PROTOCOL.max ? PROTOCOL.min : `${PROTOCOL.min} to ${PROTOCOL.max}`}.`,
-        example: 1,
+        example: PROTOCOL.max,
       }),
     worker: z
       .object({
         name: z.string().min(1).max(100).openapi({ example: "judge-laptop" }),
-        version: z.string().min(1).max(100).openapi({ example: "0.2.0" }),
+        version: z.string().min(1).max(100).openapi({ example: "0.3.0" }),
       })
       .openapi({
         description:
           "What the worker says about itself, shown in the UI beside the worker's own name: usually its host name and its version. The token, not this name, identifies the worker.",
       }),
-    judges: z
-      .array(OfferedJudge)
+    types: z
+      .array(OfferedType)
       .min(1)
       .max(20)
-      .refine((js) => new Set(js.map((j) => j.name)).size === js.length, {
-        message: "Each judge may be offered once.",
-      }),
+      .refine((ts) => new Set(ts.map((t) => t.id)).size === ts.length, {
+        message: "Each judge type may be offered once.",
+      })
+      .openapi({ description: "The judge types this worker can run now." }),
     max: z
       .number()
       .int()
@@ -90,13 +142,29 @@ const ClaimRequest = z
   })
   .openapi("ClaimRequest");
 
+const JobJudge = z
+  .object({
+    instance: InstanceId,
+    type: TypeId,
+    settings: z.record(z.string(), SettingValue).openapi({
+      description:
+        "Every setting of the judge, secrets included, by key. Never log them or keep them after the job.",
+      example: {
+        base_url: "https://api.example.com/v1",
+        api_key: "sk-example",
+        model: "whisper-1",
+      },
+    }),
+  })
+  .openapi("JobJudge");
+
 const Job = z
   .object({
     id: z.string().openapi({ description: "The job id, for posting its results." }),
     clipId: z.string(),
     wakeWord: z.string().openapi({ example: "alexa" }),
-    judges: z.array(Name).openapi({
-      description: "The offered judges to run on this clip, at the versions offered.",
+    judges: z.array(JobJudge).openapi({
+      description: "The judges to run on this clip, each of a type the worker offered.",
     }),
     leaseExpiresAt: z.string().openapi({
       description: "Results after this time are refused with 409.",
@@ -115,17 +183,31 @@ const Unsupported = z
 
 const Result = z
   .object({
-    judge: Name,
-    version: Version,
-    verdict: z.enum(["yes", "no", "abstain"]).openapi({
+    instance: InstanceId,
+    type: TypeId,
+    version: Version.openapi({ description: "The version of the type that ran." }),
+    verdict: z.enum(["yes", "no", "abstain", "failed"]).openapi({
       description:
-        "Does the clip contain its wake word? Abstain, with a detail, when the judge cannot say (no model, or it failed on this clip).",
+        "Does the clip contain its wake word? `abstain`, with a detail, when the judge cannot say for this clip (no model for its wake word, unusable audio). `failed`, with a detail and `failure`, when it cannot answer now (rate limited, quota used up, network, a refused key): nothing is recorded, the judge is paused and the clip tried again later.",
     }),
     score: z.number().nullable(),
     threshold: z.number().nullable(),
     transcript: z.string().max(2000).nullable(),
     detail: z.string().max(2000).nullable(),
+    failure: z
+      .object({
+        reason: z.enum(["auth", "rate_limit", "quota", "network", "server", "other"]),
+        retryAfterSeconds: z.number().min(0).max(86_400).nullable().openapi({
+          description: "When the service said to try again, if it did.",
+        }),
+      })
+      .nullable()
+      .default(null)
+      .openapi({ description: "For `failed` only." }),
     durationMs: z.number().min(0).openapi({ description: "How long the judge took." }),
+  })
+  .refine((r) => (r.verdict === "failed") === (r.failure !== null), {
+    message: "A failed result needs `failure`, and only a failed one may have it.",
   })
   .openapi("JudgeResult");
 
@@ -148,7 +230,7 @@ const routes = {
     tags: ["worker"],
     summary: "Lease clips to judge, waiting for one when there are none (long poll)",
     description:
-      "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Only judges the worker is allowed to run are asked for, and a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
+      "Records the judge types the worker offers, then hands out up to `max` clips, newest first, that lack a current result (the offered type version and the judge's settings) from an enabled judge of an offered type the worker may run, and that no other worker holds. A judge paused after a failure or at its daily limit is left out; a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
     security,
     request: {
       body: { required: true, content: { "application/json": { schema: ClaimRequest } } },
@@ -186,9 +268,9 @@ const routes = {
     method: "post",
     path: "/jobs/{id}/results",
     tags: ["worker"],
-    summary: "Send a job's verdicts; ends its lease",
+    summary: "Send a job's results; ends its lease",
     description:
-      "One result per judge the job named. A judge left out is offered again on a later claim. A judge that failed on the clip reports `abstain` with a `detail`, so the clip is not retried forever.",
+      "At most one result per judge the job named. A judge left out is offered again on a later claim. A judge that cannot answer this clip reports `abstain` with a `detail`, so the clip is not retried forever; one that cannot answer now reports `failed`, which pauses the judge.",
     security,
     request: {
       params: JobParam,
@@ -196,7 +278,9 @@ const routes = {
     },
     responses: {
       204: { description: "Stored" },
-      400: errorContent("The request is not valid, or names a judge the job did not ask for"),
+      400: errorContent(
+        "The request is not valid, or names a judge or version the job did not ask for",
+      ),
       401: unauthorised,
       409: errorContent(
         "The lease has expired, was released (the worker was paused or changed) or belongs to another worker: claim again",
@@ -223,7 +307,7 @@ export function workerRoutes(deps: {
       return c.json(
         {
           error: "unsupported_protocol" as const,
-          message: `This Wakewright speaks worker protocol ${PROTOCOL.min} to ${PROTOCOL.max}; the worker sent ${p}. Upgrade the older of the two.`,
+          message: `This Wakewright speaks worker protocol ${PROTOCOL.min === PROTOCOL.max ? PROTOCOL.min : `${PROTOCOL.min} to ${PROTOCOL.max}`}; the worker sent ${p}. Run the worker and the parent from the same release: upgrade the older of the two.`,
           supported: { ...PROTOCOL },
         },
         426,
@@ -242,7 +326,7 @@ export function workerRoutes(deps: {
       return c.json({ jobs }, 200);
     })
     .openapi(routes.audio, async (c) => {
-      const clip = getClip(db, c.req.valid("param").clipId);
+      const clip = getClipRow(db, c.req.valid("param").clipId);
       if (!clip) return c.json({ error: "not_found", message: "No such clip." }, 404);
       const file = blobs.file(clip.audio_sha256);
       return c.body(await file.arrayBuffer(), 200, {
@@ -313,7 +397,7 @@ export function workerOpenApiDocument() {
       title: "Wakewright worker API",
       version: String(PROTOCOL.max),
       description:
-        "How a worker claims clips from a Wakewright parent, downloads their audio and returns each judge's verdict. See docs/workers.md.",
+        "How a worker advertises its judge types, claims clips from a Wakewright parent, downloads their audio and returns each judge's result. See docs/workers.md and docs/judges.md.",
       license: { name: "Apache-2.0", url: "https://www.apache.org/licenses/LICENSE-2.0" },
     },
   });

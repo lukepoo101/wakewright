@@ -1,12 +1,18 @@
 """The job loop: claim, fetch audio, judge, post results, repeat.
 
-- Judges are prepared (models loaded, downloaded on first use) before the
-  worker offers them. A judge that fails to prepare is left out of claims
+- Judge types are prepared (models loaded, downloaded on first use) before
+  the worker offers them. A type that fails to prepare is left out of claims
   and retried with backoff, so one broken model does not stop the others.
+- Each job names the judges (instances the owner configured on the parent)
+  to run on its clip, with their settings; a type can run several.
 - When the parent cannot be reached, or refuses the worker, the loop waits
   with exponential backoff and jitter (1 s doubling to 60 s), then retries.
-- A judge that raises on a clip is reported as `abstain` with the error in
-  `detail`, so the clip is not handed out again and again.
+- A judge that raises `TemporaryFailure` (rate limited, quota, network, a
+  refused key) is reported as failed: the parent records no vote, pauses
+  the judge and retries later. The worker skips that judge for the rest of
+  the claim, so a dead service costs one request, not one per clip.
+- A judge that raises anything else on a clip is reported as `abstain`
+  with the error in `detail`, so the clip is not handed out again and again.
 - `stop` (set by SIGTERM or Ctrl+C) ends the loop after the job in hand is
   posted; jobs claimed but not started are left to their leases.
 """
@@ -24,19 +30,21 @@ from pathlib import Path
 
 from wakewright_worker.audio import Clip, InvalidAudio, read_wav
 from wakewright_worker.client import (
+    Failure,
     Gone,
     Job,
-    JudgeOffer,
+    JobJudge,
     LeaseLost,
     NotEnabled,
     ParentClient,
     ParentError,
     ProtocolMismatch,
     Result,
+    TypeOffer,
     Unauthorised,
     Unreachable,
 )
-from wakewright_worker.judges import Judge, JudgeResult
+from wakewright_worker.judges import JudgeResult, JudgeType, TemporaryFailure
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +66,7 @@ def backoff(attempt: int, start: float = BACKOFF_START, cap: float = BACKOFF_MAX
 
 @dataclass
 class _Pending:
-    judge: Judge
+    judge: JudgeType
     failures: int = 0
     next_try: float = 0.0
 
@@ -69,6 +77,7 @@ class Stats:
     jobs: int = 0
     results: int = 0
     abstained: int = 0
+    failed: int = 0
     lease_lost: int = 0
     errors: list[str] = field(default_factory=list[str])
 
@@ -77,7 +86,7 @@ class Worker:
     def __init__(
         self,
         client: ParentClient,
-        judges: Sequence[Judge],
+        judges: Sequence[JudgeType],
         *,
         batch: int = 8,
         wait_seconds: int = 25,
@@ -91,8 +100,10 @@ class Worker:
         self.stop = stop or threading.Event()
         self.heartbeat = heartbeat
         self.clock = clock
-        self.ready: dict[str, Judge] = {}
-        self.pending: dict[str, _Pending] = {j.name: _Pending(j) for j in judges}
+        self.ready: dict[str, JudgeType] = {}
+        self.pending: dict[str, _Pending] = {j.id: _Pending(j) for j in judges}
+        # Judges (instances) that failed temporarily during this claim.
+        self.failing: set[str] = set()
         # True while the loop only waits (long poll or backoff), so a signal
         # may interrupt it; False while a job is being judged or posted.
         self.idle = False
@@ -134,8 +145,8 @@ class Worker:
                 },
             )
 
-    def offers(self) -> list[JudgeOffer]:
-        return [JudgeOffer(j.name, j.version, spellings(j.wake_words)) for j in self.ready.values()]
+    def offers(self) -> list[TypeOffer]:
+        return [offer(t) for t in self.ready.values()]
 
     # -- loop -----------------------------------------------------------------
 
@@ -202,10 +213,11 @@ class Worker:
                 self._wait(delay)
             return False
         if not self._connected:
-            log.info("connected to the parent", extra={"judges": [o.name for o in self.offers()]})
+            log.info("connected to the parent", extra={"judges": [o.id for o in self.offers()]})
             self._connected = True
         self._failures = 0
         self.stats.claims += 1
+        self.failing.clear()
         for job in jobs:
             if self.stop.is_set():
                 log.info(
@@ -235,25 +247,33 @@ class Worker:
             )
             return
 
-        names = [n for n in job.judges if n in self.ready]
-        skipped = sorted(set(job.judges) - set(names))
+        todo = [j for j in job.judges if j.type in self.ready and j.instance not in self.failing]
+        skipped = sorted({j.type for j in job.judges} - set(self.ready))
         if skipped:
             log.warning(
-                "job asks for judges this worker does not have ready",
-                extra={"job": job.id, "judges": skipped},
+                "job asks for judge types this worker does not have ready",
+                extra={"job": job.id, "types": skipped},
             )
         results: list[Result] = []
         try:
             clip = Clip(job.wake_word, read_wav(audio))
         except InvalidAudio as e:
-            for name in names:
-                j = self.ready[name]
+            for j in todo:
+                t = self.ready[j.type]
                 results.append(
-                    Result(name, j.version, JudgeResult("abstain", detail=f"invalid audio: {e}"), 0)
+                    Result(
+                        j.instance,
+                        t.id,
+                        t.version,
+                        JudgeResult("abstain", detail=f"invalid audio: {e}"),
+                        0,
+                    )
                 )
         else:
-            for name in names:
-                results.append(self.run_judge(self.ready[name], clip, job))
+            for j in todo:
+                if j.instance in self.failing:
+                    continue
+                results.append(self.run_judge(self.ready[j.type], j, clip, job))
 
         if results:
             self.post(job, results)
@@ -264,24 +284,47 @@ class Worker:
                 "job": job.id,
                 "clip": job.clip_id,
                 "wakeWord": job.wake_word,
-                "verdicts": {r.judge: r.result.verdict for r in results},
+                "verdicts": {
+                    r.instance: "failed" if isinstance(r.result, Failure) else r.result.verdict
+                    for r in results
+                },
                 "ms": round(1000 * (time.monotonic() - started)),
             },
         )
 
-    def run_judge(self, judge: Judge, clip: Clip, job: Job) -> Result:
+    def run_judge(self, judge_type: JudgeType, judge: JobJudge, clip: Clip, job: Job) -> Result:
         t0 = time.perf_counter()
+        result: JudgeResult | Failure
         try:
-            result = judge.judge(clip)
+            result = judge_type.judge(clip, judge.settings)
+        except TemporaryFailure as e:
+            self.failing.add(judge.instance)
+            self.stats.failed += 1
+            # The message is the type's own and must hold no secret; the
+            # settings are never logged.
+            log.warning(
+                "judge cannot answer now; the parent retries it later",
+                extra={
+                    "type": judge_type.id,
+                    "instance": judge.instance,
+                    "job": job.id,
+                    "reason": e.reason,
+                    "error": e.message,
+                },
+            )
+            result = Failure(e.message, e.reason, e.retry_after)
         except Exception as e:
-            log.exception("judge crashed on a clip", extra={"judge": judge.name, "job": job.id})
+            log.exception(
+                "judge crashed on a clip",
+                extra={"type": judge_type.id, "instance": judge.instance, "job": job.id},
+            )
             result = JudgeResult(
                 "abstain", detail=f"judge error: {e.__class__.__name__}: {e}"[:500]
             )
         ms = round(1000 * (time.perf_counter() - t0))
-        if result.verdict == "abstain":
+        if isinstance(result, JudgeResult) and result.verdict == "abstain":
             self.stats.abstained += 1
-        return Result(judge.name, judge.version, result, ms)
+        return Result(judge.instance, judge_type.id, judge_type.version, result, ms)
 
     def post(self, job: Job, results: list[Result]) -> None:
         for attempt in range(POST_ATTEMPTS):
@@ -308,6 +351,19 @@ class Worker:
                 return
             self.stats.results += len(results)
             return
+
+
+def offer(t: JudgeType) -> TypeOffer:
+    return TypeOffer(
+        id=t.id,
+        version=t.version,
+        name=t.name,
+        kind=t.kind,
+        description=t.description,
+        external=t.external,
+        wake_words=spellings(t.wake_words),
+        settings=[s.to_wire() for s in t.settings],
+    )
 
 
 def spellings(wake_words: frozenset[str] | None) -> list[str] | None:

@@ -53,13 +53,16 @@ Next (judging):
   clips are waiting to be judged.
 - See on each clip what each judge said, its score against its threshold,
   the transcript and the judge's version.
-- Filter the clip list to **disagreements**, and to the clips where the
-  judges disagree with the device: likely false wakes and likely missed
-  wake words.
+- Set judges up on a Judges page: their types, settings, weights and daily
+  limits, with a test on one clip, and the margin and minimum that turn
+  weighted votes into an outcome.
+- Filter the clip list to **uncertain** outcomes, to clips where a judge
+  dissents, and to the clips where the outcome disagrees with the device:
+  likely false wakes and likely missed wake words.
 
 Later:
 
-- Review disagreements one clip at a time with a single key or tap, with
+- Review uncertain clips one clip at a time with a single key or tap, with
   the next clip already playing and undo for mistakes. A blind mode hides
   the judges' answers until you have given yours, for benchmark clips.
 - See what is using storage and delete clips by filter, or everything.

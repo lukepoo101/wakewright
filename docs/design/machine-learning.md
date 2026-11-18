@@ -64,28 +64,26 @@ can tell a person from a television saying the same word.
 | microWakeWord models from ESPHome | Apache-2.0                               | Downloaded the same way, for consistency                                |
 | vsWakeWord (on the device)        | CC BY-NC-ND 4.0                          | Used only through the score the device recorded                         |
 
-## Agreement
+## The outcome
 
-The first milestone keeps this deliberately simple: no weights, no
-calibration, just a count. Using each judge's latest result and ignoring
-abstentions, a clip is:
+Judges are weighted, by hand for now: speech to text is strong evidence,
+the small wake word models weak. Each counted judge's latest yes or no
+votes plus or minus its weight; the score is the sum over the weight that
+voted, from −1 to +1. The outcome is yes or no when the score passes a
+margin (0.5 by default), uncertain in between, not enough evidence when
+less than a minimum weight voted (one speech-to-text judge by default),
+and waiting while a judge that can run has still to answer. The rule and
+its defaults are in [judges.md](../judges.md) and
+[ADR 0019](../adr/0019-configurable-weighted-judges.md).
 
-| State                    | Meaning                          |
-| ------------------------ | -------------------------------- |
-| `waiting`                | no results yet                   |
-| `agree_yes` / `agree_no` | at least two votes, all the same |
-| `disagree`               | the votes differ                 |
-| `inconclusive`           | fewer than two votes             |
-
-The most useful view compares the judges with the **device**. A clip
-the device fired on that the judges agree is not the wake word is likely a
-false wake; a near miss the judges agree _is_ the wake word is likely a
-missed wake. Those are the clips that teach a model something, and the
-UI makes them easy to find.
+The most useful view compares the outcome with the **device**. A clip the
+device fired on whose outcome is no is likely a false wake; a near miss
+whose outcome is yes is likely a missed wake. Those are the clips that
+teach a model something, and the UI makes them easy to find.
 
 ## Later: review and label fusion
 
-Disagreements go to a person. A review screen plays each clip and takes a
+Uncertain clips go to a person. A review screen plays each clip and takes a
 one-key answer: the wake word said by a person, the wake word from a
 television or speaker, not the wake word, or unsure. Clips from a speaker
 are kept apart because training them as negatives would teach a model to
@@ -93,7 +91,7 @@ reject anything heard through a loudspeaker channel, which far-field
 speech partly shares.
 
 With enough human labels, a fitted combination of the judges can replace
-the simple count: plain rules at first, then a small logistic model that
+the hand-set weights: plain rules at first, then a small logistic model that
 gives a calibrated probability, refitted as labels grow. Clips the model
 is very sure of, and that at least two independent judges agree on, are
 labelled automatically; the rest go to review. A random sample of

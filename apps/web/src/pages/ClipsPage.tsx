@@ -25,7 +25,7 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
   const filtered = Boolean(
     search.device || search.kind || search.engine || search.from || search.to || search.judges,
   );
-  const disagreements = search.judges === "disagree";
+  const uncertain = search.judges === "uncertain";
   // The quick filter shows once there is something judged to filter.
   const judged = (judging.data?.judged ?? 0) > 0;
 
@@ -44,17 +44,17 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
         title="Clips"
         lead="Wake words and near misses your devices saved, newest first."
         actions={
-          (judged || disagreements) && (
+          (judged || uncertain) && (
             <Button
-              variant={disagreements ? "primary" : "secondary"}
+              variant={uncertain ? "primary" : "secondary"}
               icon="notEqual"
-              aria-pressed={disagreements}
-              onClick={() => update({ judges: disagreements ? undefined : "disagree" })}
+              aria-pressed={uncertain}
+              onClick={() => update({ judges: uncertain ? undefined : "uncertain" })}
             >
-              Disagreements
+              Uncertain
               {judging.data && (
                 <span className={styles.count}>
-                  {judging.data.disagree.toLocaleString("en-GB")}
+                  {judging.data.uncertain.toLocaleString("en-GB")}
                 </span>
               )}
             </Button>
@@ -114,7 +114,7 @@ export function ClipsPage({ search }: { search: ClipSearch }) {
               update({ judges: (e.target.value || undefined) as JudgesFilter | undefined })
             }
           >
-            <option value="">Any verdict</option>
+            <option value="">Any outcome</option>
             {JUDGES_FILTERS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}

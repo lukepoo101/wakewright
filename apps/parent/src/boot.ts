@@ -11,6 +11,7 @@ import { openDatabase } from "./db/db.ts";
 import { migrate } from "./db/migrate.ts";
 import { Devices } from "./devices.ts";
 import { Collector } from "./ingest.ts";
+import { Judges } from "./judges.ts";
 import { Judging } from "./judging.ts";
 import type { Logger } from "./log.ts";
 import { Workers } from "./workers.ts";
@@ -58,7 +59,8 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
   await measureUnmeasuredClips(db, blobs, log);
   const box = await SecretBox.create(loadSecretKey(config.secretKey, dataDir, log));
   const devices = new Devices(db, box, { fetch, timeoutMs: config.collector.timeoutMs });
-  const judging = new Judging({ db, log });
+  const judges = new Judges({ db, box, log, onChange: () => judging.notify() });
+  const judging = new Judging({ db, log, judges });
   const workers = new Workers({ db, log, onChange: () => judging.notify() });
   workers.applyDeclared(config.workers);
   const collector = new Collector({
@@ -76,6 +78,7 @@ export async function boot(config: Config, log: Logger): Promise<Booted> {
     devices,
     collector,
     judging,
+    judges,
     workers,
     blobs,
     intervalMs: config.collector.intervalMs,

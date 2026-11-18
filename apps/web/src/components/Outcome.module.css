@@ -18,20 +18,20 @@
   font-weight: 400;
 }
 
-.inconclusive {
+.not_enough {
   color: var(--color-text-muted);
 }
 
-.agree_yes {
+.yes {
   color: var(--color-ok);
 }
 
-.agree_no {
+.no {
   color: var(--color-text);
   border-color: var(--color-border-strong);
 }
 
-.disagree {
+.uncertain {
   color: var(--color-warn);
   background: var(--color-warn-soft);
 }

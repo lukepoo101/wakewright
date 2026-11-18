@@ -11,6 +11,7 @@ import { openDatabase } from "../src/db/db.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { Devices } from "../src/devices.ts";
 import { Collector } from "../src/ingest.ts";
+import { Judges } from "../src/judges.ts";
 import { Judging } from "../src/judging.ts";
 import { createLogger, type Logger } from "../src/log.ts";
 import type { DeclaredWorker } from "../src/config.ts";
@@ -44,6 +45,7 @@ export interface Parts {
   devices: Devices;
   collector: Collector;
   judging: Judging;
+  judges: Judges;
   workers: Workers;
   dataDir: string;
 }
@@ -60,17 +62,31 @@ export async function testParts(
     now?: () => number;
     /** Workers declared as if by configuration. */
     declared?: DeclaredWorker[];
+    log?: Logger;
   } = {},
 ): Promise<Parts> {
   const db = options.db ?? migratedDb();
   const dataDir = options.dataDir ?? tempDir();
   const blobs = new BlobStore(dataDir);
   blobs.init();
-  const devices = new Devices(db, await SecretBox.create(TEST_KEY), {
+  const box = await SecretBox.create(TEST_KEY);
+  const devices = new Devices(db, box, {
     fetch: options.fetch ?? fetch,
     timeoutMs: 2000,
   });
-  const judging = new Judging({ db, log: quietLog, now: options.now });
+  const judges: Judges = new Judges({
+    db,
+    box,
+    log: options.log ?? quietLog,
+    now: options.now,
+    onChange: () => judging.notify(),
+  });
+  const judging: Judging = new Judging({
+    db,
+    log: options.log ?? quietLog,
+    judges,
+    now: options.now,
+  });
   const workers = new Workers({
     db,
     log: quietLog,
@@ -87,7 +103,7 @@ export async function testParts(
     now: options.now,
     onStored: () => judging.notify(),
   });
-  return { db, blobs, devices, collector, judging, workers, dataDir };
+  return { db, blobs, devices, collector, judging, judges, workers, dataDir };
 }
 
 export async function testApi(
@@ -98,6 +114,7 @@ export async function testApi(
     now?: () => number;
     fetch?: typeof fetch;
     declared?: DeclaredWorker[];
+    log?: Logger;
   } = {},
 ) {
   const parts = await testParts(options);

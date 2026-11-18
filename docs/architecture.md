@@ -15,7 +15,8 @@ offline evaluation, is in [design/](design/).
 
 Built so far: the parent adds Kiosk Satellite devices, collects their wake
 word clips, stores them and lets you browse and play them; the worker
-judges each clip, and the parent shows where the judges disagree.
+judges each clip with the judges configured on the Judges page, and the
+parent weighs their votes into an outcome per clip.
 
 ## The parent
 
@@ -78,17 +79,29 @@ judges each clip, and the parent shows where the judges disagree.
   (`WAKEWRIGHT__WORKERS__<NAME>__*`, applied on every start and read-only
   in the UI). Pausing, deleting or a new token releases its leases at once
   ([ADR 0018](adr/0018-workers-with-their-own-tokens.md)).
+- **Judges** (`judges.ts`, `db/judges.ts`, `judge-settings.ts`,
+  `/api/v1/judges`): workers advertise judge types with a settings schema
+  in each claim; the parent keeps the latest (`judge_types`). A judge is an
+  instance of a type set up on the Judges page: settings checked against
+  the schema, secret ones sealed with the instance key, a weight, an
+  optional daily limit and a health state (paused after a temporary
+  failure). A test run sends one judge and clip to the next suitable
+  claim ([ADR 0019](adr/0019-configurable-weighted-judges.md),
+  [judges.md](judges.md)).
 - **Judging** (`judging.ts`, `db/judging.ts`): workers call
-  `/api/worker/v1` with their own token to claim clips (a long poll
-  that the collector wakes when it stores a clip), download their audio and
-  send back each judge's verdict ([workers.md](workers.md)). There is no
-  job table: a clip needs judging while it lacks a result for a
-  (judge, version) the worker offers for its wake word and may run, and a
-  two-minute lease keeps two workers off one clip. Agreement (waiting, inconclusive,
-  agree yes or no, disagree) and disagreement with the device (likely
-  false wake, likely missed wake word) are computed in SQL from each
-  judge's latest result, so the clip list filters on them
-  ([ADR 0016](adr/0016-judging-queue-and-agreement.md)).
+  `/api/worker/v1` (protocol 2) with their own token to claim clips (a long
+  poll that the collector wakes when it stores a clip), download their
+  audio and send back each judge's result ([workers.md](workers.md)).
+  There is no job table: a clip needs judging while it lacks a current
+  result (the offered type version, the judge's settings fingerprint)
+  from an enabled judge whose type the worker offers for its wake word and
+  may run, within the judge's daily limit; a two-minute lease keeps two
+  workers off one clip. The weighted outcome (`outcome.ts`: yes, no,
+  uncertain, not enough evidence, waiting) and disagreement with the
+  device (likely false wake, likely missed wake word) are computed in SQL
+  from each judge's latest result, so the clip list filters on them and a
+  new weight applies at once ([ADR 0016](adr/0016-judging-queue-and-agreement.md),
+  [ADR 0019](adr/0019-configurable-weighted-judges.md)).
   `docs/api/worker-v1.openapi.json` is the committed wire format.
 - **Backups**: `Bun.cron` runs `VACUUM INTO /data/backups/wakewright-YYYYMMDD.sqlite3`
   at 03:30 every night and keeps 14. Audio blobs are immutable, so
@@ -104,7 +117,7 @@ judges each clip, and the parent shows where the judges disagree.
  /api/worker/v1: claim, audio, results   │
                      ┌─────────────── worker (one Python process) ───────────────┐
                      │ loop.py: claim (long poll) → audio → judges → results     │
-                     │ judges/: openwakeword · microwakeword · stt (Parakeet)    │
+                     │ judges/: types · registry · speech · http + one per type  │
                      │ models.py: pinned downloads ──► cache dir (/cache)        │
                      └───────────────────────────────────────────────────────────┘
 ```
@@ -113,12 +126,16 @@ judges each clip, and the parent shows where the judges disagree.
 with a console entry point (`wakewright-worker`), configured by
 `WAKEWRIGHT_WORKER__*` variables, so the same code runs in its image, under
 `uv run` on any machine and later inside a desktop wrapper. Each judge
-implements one small protocol (`judges/__init__.py`); its models are
-downloaded on first use into the cache directory, pinned by revision and
-SHA-256, and never shipped ([models.md](models.md)). The loop prepares the
-judges, offers the ready ones in each claim, judges each clip, reports a
-judge that fails as `abstain`, backs off while the parent is unreachable
-and stops cleanly on SIGTERM. It holds no state of its own: any number can
+Each judge type subclasses one small class (`judges/__init__.py`) and is
+registered in `judges/registry.py`; speech-to-text types share the
+transcript rule (`judges/speech.py`) and cloud ones the HTTP error mapping
+(`judges/http.py`) ([judges.md](judges.md)). Local models are downloaded
+on first use into the cache directory, pinned by revision and SHA-256, and
+never shipped ([models.md](models.md)). The loop prepares the types,
+offers the ready ones in each claim, runs each judge a job names with its
+settings, reports a judge that crashes on a clip as `abstain` and one that
+cannot answer now as `failed` (skipping it for the rest of the claim),
+backs off while the parent is unreachable and stops cleanly on SIGTERM. It holds no state of its own: any number can
 run. Running it: [worker.md](worker.md); decisions:
 [ADR 0017](adr/0017-the-worker.md).
 
@@ -133,7 +150,10 @@ apps/parent/          @wakewright/parent: the server
   src/auth.ts         admin account, sessions, login throttle
   src/source.ts       the Source interface every kind of device implements
   src/ingest.ts       the collector: polling, storing clips, status, pause
-  src/judging.ts      judging: claims and leases, routing, the long poll, results, status
+  src/judging.ts      judging: claims and leases, routing, the long poll, results, backoff, tests
+  src/judges.ts       judges: instances of advertised types, settings, sealed secrets, the rule
+  src/judge-settings.ts checking settings against a type's schema; the settings fingerprint
+  src/outcome.ts      the weighted outcome (shared with the SPA)
   src/workers.ts      workers: tokens, declared workers applied at start, pause, revoke
   src/pairing.ts      the pairing string (address + token) a worker is set up with
   src/clip-settings.ts which device settings a clip may claim (ADR 0014)
@@ -156,7 +176,9 @@ apps/web/             @wakewright/web: the SPA
   src/components/     shared components (AudioPlayer: wavesurfer.js waveform)
 apps/worker/          wakewright-worker: the Python worker (uv project, not a Bun workspace)
   src/wakewright_worker/  cli.py, config.py, client.py, loop.py, models.py, audio.py, log.py
-    judges/           openwakeword.py, microwakeword.py, stt.py; fake.py for tests
+    judges/           __init__.py (the JudgeType interface), registry.py, speech.py, http.py,
+                      openwakeword.py, microwakeword.py, stt.py (Parakeet),
+                      openai_compatible.py, elevenlabs.py; fake.py for tests
   tests/              pytest: fakes.py (fake parent, fake judges), unit and contract tests;
                       test_real_models.py is opt-in (`-m models`)
   scripts/            check_licences.py, check_lock_age.py (run by `mise run check:worker`)
@@ -192,9 +214,12 @@ controls over HTTP under `/_fake/`. Extend it alongside the client.
 `devtools/fake-worker` speaks the worker protocol like a real worker but
 judges nothing: each clip's verdicts are picked from a hash of its audio, so
 the fake device's synthetic clips always get the same ones and cover every
-state (all yes, all no, a disagreement, an abstention, a judge failing).
-It offers openWakeWord for "alexa" only, so clips of other wake words show
-a judge without a model. It takes a token or a pairing string. `mise run
+outcome with the default weights (yes, no, uncertain, a dissent, not
+enough evidence). It offers openWakeWord for "alexa" only, so clips of
+other wake words show a judge without a model, and an OpenAI-compatible
+type with the real settings form that calls nothing: an API key starting
+with `bad` fails as a refused key, a base URL containing `unreachable` as a
+network failure. It takes a token or a pairing string. `mise run
 dev` runs it as the declared worker `dev-worker`; tests and E2E run it
 in-process (`runFakeWorker`) and predict its verdicts with `fakeVerdicts`.
 
@@ -220,3 +245,4 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0016 [Judging: a derived queue with leases, a shared token, unweighted agreement](adr/0016-judging-queue-and-agreement.md)
 - 0017 [The worker: Python with uv, three downloaded judges, a second image](adr/0017-the-worker.md)
 - 0018 [Workers as records with their own tokens, created in the UI or declared](adr/0018-workers-with-their-own-tokens.md)
+- 0019 [Configurable, weighted judges: types in the worker, instances in the parent](adr/0019-configurable-weighted-judges.md)

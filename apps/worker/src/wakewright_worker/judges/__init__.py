@@ -1,23 +1,52 @@
-"""Judges: each answers "does this clip contain its wake word?".
+"""Judge types: the plugin interface every judge implements.
 
-A judge is anything with the `Judge` shape. `prepare()` loads (and on first
-use downloads) its models and may be slow; `judge()` must be safe to call
-for any clip and should not raise for ordinary audio, but the job loop turns
-an exception into an `abstain` result anyway, so one bad clip or judge never
-stops the worker.
+A *judge type* answers "does this clip contain its wake word?". The owner
+turns a type into one or more *judges* (instances) on the parent's Judges
+page, each with its own settings, weight and daily limit; the parent sends
+each job with the instances to run and their settings. A type therefore
+holds no per-instance state: `judge(clip, settings)` gets everything it
+needs. Writing one is in docs/judges.md.
+
+A type has:
+
+- `id`: stable, `a-z0-9_.-`; the parent stores verdicts under it.
+- `name`, `description`: shown on the Judges page.
+- `kind`: `"wake_word_model"` or `"speech_to_text"`.
+- `version`: changes whenever its model or logic changes in a way that can
+  change a verdict, so the parent judges every clip again.
+- `settings`: a declarative schema (`Setting`) the parent renders as a form.
+- `external`: True when it sends audio to a service outside this worker.
+- `wake_words`: the normalised wake words it has a model for, or None.
+- `model_files()` and `prepare()`: downloads and loading, done once.
+- `judge(clip, settings)`: a `JudgeResult` (yes, no or abstain), or raise
+  `TemporaryFailure` when it cannot answer *now* (rate limited, quota used
+  up, network, a refused key): the parent retries later with backoff and
+  shows the failure on the judge. Any other exception is reported as an
+  abstention for this clip, so one bad clip never stops the worker.
+
+The built-in types are registered in `registry.py`.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal
 
 from wakewright_worker.audio import Clip
-from wakewright_worker.models import ModelCache, ModelFile
+from wakewright_worker.models import ModelFile
 
 Verdict = Literal["yes", "no", "abstain"]
+Kind = Literal["wake_word_model", "speech_to_text"]
+SettingType = Literal["text", "secret", "number", "select", "boolean"]
+FailureReason = Literal["auth", "rate_limit", "quota", "network", "server", "other"]
+SettingValue = str | float | bool | None
+Settings = Mapping[str, SettingValue]
+
+TYPE_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+SETTING_KEY = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -29,30 +58,104 @@ class JudgeResult:
     detail: str | None = None
 
 
-class Judge(Protocol):
-    @property
-    def name(self) -> str: ...
+class TemporaryFailure(Exception):
+    """The judge cannot answer now, but may later: nothing is recorded for
+    the clip, the parent pauses the judge (for `retry_after` seconds, or
+    with exponential backoff) and shows `message` on it. Never put a secret
+    in the message."""
 
-    @property
-    def version(self) -> str:
-        """Changes whenever the judge's model or logic changes, so the parent
-        can tell old results from new ones."""
-        ...
+    def __init__(
+        self, message: str, *, reason: FailureReason = "other", retry_after: float | None = None
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.reason: FailureReason = reason
+        self.retry_after = retry_after
 
-    @property
-    def wake_words(self) -> frozenset[str] | None:
-        """Normalised wake words it has a model for, or None for any."""
-        ...
+
+@dataclass(frozen=True)
+class Option:
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
+class Setting:
+    """One field of a type's settings form.
+
+    `affects_verdict` (default: True, but always False for a secret) says
+    whether changing the value can change a verdict. Changing such a value
+    makes the parent judge every clip again with the judge; changing any
+    other (an API key, a timeout) does not.
+    """
+
+    key: str
+    label: str
+    type: SettingType = "text"
+    help: str = ""
+    default: SettingValue = None
+    required: bool = False
+    options: tuple[Option, ...] = ()
+    minimum: float | None = None
+    maximum: float | None = None
+    placeholder: str = ""
+    affects_verdict: bool = True
+
+    def __post_init__(self) -> None:
+        if not SETTING_KEY.match(self.key):
+            raise ValueError(f"setting key {self.key!r}: use a-z, digits and _")
+        if self.type == "select" and not self.options:
+            raise ValueError(f"setting {self.key!r}: a select needs options")
+
+    def to_wire(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "type": self.type,
+            "help": self.help,
+            "default": None if self.type == "secret" else self.default,
+            "required": self.required,
+            "options": [{"value": o.value, "label": o.label} for o in self.options],
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "placeholder": self.placeholder,
+            "affectsVerdict": self.affects_verdict and self.type != "secret",
+        }
+
+
+class JudgeType(ABC):
+    """Subclass this, set the class attributes and implement `judge`."""
+
+    id: str
+    name: str
+    kind: Kind
+    version: str
+    description: str = ""
+    external: bool = False
+    settings: tuple[Setting, ...] = ()
+    wake_words: frozenset[str] | None = None
 
     def model_files(self) -> list[ModelFile]:
         """Every file `prepare` will need, for `download-models`."""
-        ...
+        return []
 
-    def prepare(self) -> None:
+    def prepare(self) -> None:  # noqa: B027 - most types need nothing
         """Load models, downloading them into the cache first if needed."""
-        ...
 
-    def judge(self, clip: Clip) -> JudgeResult: ...
+    @abstractmethod
+    def judge(self, clip: Clip, settings: Settings) -> JudgeResult: ...
+
+
+def text_setting(settings: Settings, key: str, default: str = "") -> str:
+    value = settings.get(key)
+    return value.strip() if isinstance(value, str) else default
+
+
+def number_setting(settings: Settings, key: str, default: float) -> float:
+    value = settings.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return float(value)
 
 
 def normalise_wake_word(name: str) -> str:
@@ -66,28 +169,3 @@ def no_model(judge: str, wake_word: str, known: frozenset[str]) -> JudgeResult:
         detail=f"{judge} has no model for the wake word {wake_word!r}; it has "
         + ", ".join(sorted(known)),
     )
-
-
-JudgeFactory = Callable[[ModelCache], Judge]
-
-
-def factories() -> dict[str, JudgeFactory]:
-    """The built-in judges by name. Imports are deferred so that a judge's
-    native libraries load only when it is enabled."""
-
-    def oww(cache: ModelCache) -> Judge:
-        from wakewright_worker.judges.openwakeword import OpenWakeWordJudge  # noqa: PLC0415
-
-        return OpenWakeWordJudge(cache)
-
-    def mww(cache: ModelCache) -> Judge:
-        from wakewright_worker.judges.microwakeword import MicroWakeWordJudge  # noqa: PLC0415
-
-        return MicroWakeWordJudge(cache)
-
-    def stt(cache: ModelCache) -> Judge:
-        from wakewright_worker.judges.stt import SpeechToTextJudge  # noqa: PLC0415
-
-        return SpeechToTextJudge(cache)
-
-    return {"openwakeword": oww, "microwakeword": mww, "stt": stt}

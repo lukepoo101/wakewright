@@ -101,3 +101,24 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.judgeName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.weight {
+  font-size: var(--text-small);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.uncounted {
+  border-style: dashed;
+}
+
+.uncounted .weight {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}

@@ -70,7 +70,7 @@ interface Judging {
   workers: {
     name: string;
     connected: boolean;
-    reported: { name: string | null; judges: { name: string; version: string }[] };
+    reported: { name: string | null; types: { id: string; version: string }[] };
   }[];
 }
 
@@ -135,7 +135,7 @@ try {
   if (!seen?.connected) throw new Error("the parent does not show the worker as connected");
   if (seen.reported.name !== "integration-host")
     throw new Error(`the worker reported itself as ${seen.reported.name}`);
-  const judges = seen.reported.judges.map((j) => `${j.name}@${j.version}`).sort();
+  const judges = seen.reported.types.map((j) => `${j.id}@${j.version}`).sort();
   if (judges.join(" ") !== "microwakeword@fake+1 openwakeword@fake+1 stt@fake+1")
     throw new Error(`unexpected judges: ${judges.join(" ")}`);
   if (judging.waiting !== 0 || judging.judged < clips.length)

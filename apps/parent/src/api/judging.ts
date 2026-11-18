@@ -5,7 +5,7 @@ import { type ApiEnv, newApi } from "./common.ts";
 import { WorkerSchema } from "./workers.ts";
 
 // Judging at a glance, for Home: the workers and whether they are
-// connected, how many clips wait for a judge, and the disagreements.
+// connected, how many clips wait for a judge, and the weighted outcomes.
 // /api/v1/judging.
 
 const Status = z
@@ -14,12 +14,21 @@ const Status = z
     workers: z.array(WorkerSchema),
     /** Clips still missing a result from a judge that recent, enabled workers may run. */
     waiting: z.number().int(),
-    /** Clips at least one judge has answered for. */
+    /** The outcome rule in force. */
+    rule: z.object({ margin: z.number(), minimum: z.number() }),
+    /** Clips with an outcome other than waiting. */
     judged: z.number().int(),
-    disagree: z.number().int(),
-    /** The device fired but the judges agree it was not the wake word. */
+    yes: z.number().int(),
+    no: z.number().int(),
+    uncertain: z.number().int(),
+    notEnough: z.number().int(),
+    /** Clips whose outcome waits for a judge (or that no judge has answered). */
+    pending: z.number().int(),
+    /** A counted judge voted against the clip's outcome. */
+    dissent: z.number().int(),
+    /** The device fired but the outcome is no. */
     falseWake: z.number().int(),
-    /** A near miss the judges agree was the wake word. */
+    /** A near miss the outcome says yes to. */
     missedWake: z.number().int(),
   })
   .openapi("JudgingStatus");
@@ -28,7 +37,7 @@ const status = createRoute({
   method: "get",
   path: "/judging",
   tags: ["judging"],
-  summary: "Workers, clips waiting to be judged, and disagreement counts",
+  summary: "Workers, clips waiting to be judged, and outcome counts",
   responses: {
     200: { description: "Status", content: { "application/json": { schema: Status } } },
   },

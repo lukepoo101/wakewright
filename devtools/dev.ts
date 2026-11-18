@@ -5,7 +5,7 @@
 // slots, and hands over older clips its earlier microWakeWord recorded; the
 // lounge runs microWakeWord. So both score scales show, side by side. The
 // fake worker is the declared worker "dev-worker", as a deployment would
-// set one; its verdicts cover every agreement state. Ctrl-C stops all.
+// set one; its verdicts cover every outcome. Ctrl-C stops all.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");

@@ -1,30 +1,61 @@
+import { Link } from "@tanstack/react-router";
 import type { Clip } from "../clips.ts";
-import { ago, plural, useNow } from "../format.ts";
-import { judgeName, type JudgingStatus, useJudgingStatus } from "../judging.ts";
-import { AgreementChip } from "./Agreement.tsx";
+import { ago, useNow } from "../format.ts";
+import {
+  type JudgingStatus,
+  OUTCOME_LABELS,
+  percent,
+  signedScore,
+  useJudgingStatus,
+} from "../judging.ts";
 import { ScoreBar } from "./ClipBits.tsx";
 import styles from "./JudgesCard.module.css";
+import { OutcomeChip } from "./Outcome.tsx";
 import { Alert, Card } from "./ui.tsx";
 
-// The clip page's "What the judges said": the agreement in a sentence, a
-// warning when the judges agree against the device, then each judge's
-// latest verdict with its score against its threshold, what it heard, why
-// it abstained and its version, and the judges that have not answered.
+// The clip page's "What the judges said": the weighted outcome in a
+// sentence with its score, a warning when it is against the device, then
+// each judge's latest verdict with its weight, score against its
+// threshold, what it heard, why it abstained and its version, and the
+// judges that have not answered, with why.
 
-type Judges = {
-  results: {
-    judge: string;
-    version: string;
-    verdict: "yes" | "no" | "abstain";
-    score: number | null;
-    threshold: number | null;
-    transcript: string | null;
-    detail: string | null;
-    durationMs: number;
-    worker: string;
-    judgedAt: string;
-  }[];
-  pending: { judge: string; reason: "waiting" | "no_model" }[];
+type Result = {
+  judgeId: string;
+  name: string;
+  typeName: string;
+  weight: number;
+  status: "counted" | "not_counted" | "off" | "deleted";
+  current: boolean;
+  version: string;
+  verdict: "yes" | "no" | "abstain";
+  score: number | null;
+  threshold: number | null;
+  transcript: string | null;
+  detail: string | null;
+  durationMs: number;
+  worker: string;
+  judgedAt: string;
+};
+
+type Pending = {
+  judgeId: string;
+  name: string;
+  typeName: string;
+  weight: number;
+  reason:
+    "waiting" | "rejudging" | "no_model" | "failing" | "limited" | "no_worker" | "not_counted";
+};
+
+type Judges = { results: Result[]; pending: Pending[] };
+
+const PENDING_TEXT: Record<Pending["reason"], string> = {
+  waiting: "Not judged yet.",
+  rejudging: "Its settings or version changed: waiting to judge this clip again.",
+  no_model: "Its type has no model for this wake word.",
+  failing: "Paused after a failure; see Judges.",
+  limited: "At its daily limit; it judges newer clips first.",
+  no_worker: "No connected worker can run it.",
+  not_counted: "Weight 0: not run for the outcome.",
 };
 
 export function JudgesCard({ clip, judges }: { clip: Clip; judges: Judges }) {
@@ -32,104 +63,134 @@ export function JudgesCard({ clip, judges }: { clip: Clip; judges: Judges }) {
   const now = useNow();
   const j = clip.judging;
   const nothing = judges.results.length === 0;
+  const rule = status.data?.rule;
 
   return (
     <Card className={styles.card}>
       <div className={styles.head}>
         <h2>What the judges said</h2>
-        {!nothing && <AgreementChip judging={j} />}
+        {!nothing && <OutcomeChip judging={j} />}
       </div>
 
-      {nothing ? (
-        <p className={styles.summary}>{emptyText(status.data, judges)}</p>
-      ) : (
-        <p className={styles.summary}>{summary(clip)}</p>
-      )}
+      <p className={styles.summary}>
+        {nothing ? emptyText(status.data, judges) : summary(clip, rule)}{" "}
+        {!nothing && <Link to="/judges">How the outcome is decided</Link>}
+      </p>
 
       {j.mismatch === "false_wake" && (
         <Alert tone="error" title="Likely false wake">
-          The device woke up, but the judges agree this clip is not its wake word.
+          The device woke up, but the judges' weighted outcome is that this clip is not its wake
+          word.
         </Alert>
       )}
       {j.mismatch === "missed_wake" && (
         <Alert tone="error" title="Likely missed wake word">
-          The device only nearly woke up, but the judges agree this clip is its wake word.
+          The device only nearly woke up, but the judges' weighted outcome is that this clip is its
+          wake word.
         </Alert>
       )}
 
       {(judges.results.length > 0 || judges.pending.length > 0) && (
         <ul className={styles.judges}>
-          {sortJudges(judges.results).map((r) => (
-            <li key={r.judge} className={styles.judge} style={{ order: judgeOrder(r.judge) }}>
-              <div className={styles.judgeHead}>
-                <h3>{judgeName(r.judge)}</h3>
-                <Verdict verdict={r.verdict} />
-              </div>
-              {r.score !== null && (
-                <div className={styles.line}>
-                  <ScoreBar score={r.score} threshold={r.threshold} />
-                  {r.threshold !== null && (
-                    <span className={styles.muted}>
-                      {r.score >= r.threshold ? "at or over its threshold" : "under its threshold"}
-                    </span>
-                  )}
+          {judges.results.map((r) => {
+            const pending = judges.pending.find((p) => p.judgeId === r.judgeId);
+            return (
+              <li
+                key={r.judgeId}
+                className={`${styles.judge} ${r.status === "counted" ? "" : styles.uncounted}`}
+              >
+                <div className={styles.judgeHead}>
+                  <div className={styles.judgeName}>
+                    <h3>{r.name}</h3>
+                    <span className={styles.muted}>{r.typeName}</span>
+                  </div>
+                  <Verdict verdict={r.verdict} />
                 </div>
-              )}
-              {r.transcript !== null && (
-                <p className={styles.line}>
-                  <span className={styles.muted}>Heard</span>{" "}
-                  {r.transcript ? (
-                    <q className={styles.transcript}>{r.transcript}</q>
-                  ) : (
-                    <span className={styles.muted}>nothing</span>
-                  )}
+                <p className={styles.weight}>{weightText(r)}</p>
+                {r.score !== null && (
+                  <div className={styles.line}>
+                    <ScoreBar score={r.score} threshold={r.threshold} />
+                    {r.threshold !== null && (
+                      <span className={styles.muted}>
+                        {r.score >= r.threshold
+                          ? "at or over its threshold"
+                          : "under its threshold"}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {r.transcript !== null && (
+                  <p className={styles.line}>
+                    <span className={styles.muted}>Heard</span>{" "}
+                    {r.transcript ? (
+                      <q className={styles.transcript}>{r.transcript}</q>
+                    ) : (
+                      <span className={styles.muted}>nothing</span>
+                    )}
+                  </p>
+                )}
+                {r.detail !== null && (
+                  <p className={styles.line}>
+                    <span className={styles.muted}>
+                      {r.verdict === "abstain" ? "Why it abstained" : "Note"}
+                    </span>{" "}
+                    {r.detail}
+                  </p>
+                )}
+                {(!r.current || pending) && r.status !== "deleted" && (
+                  <p className={styles.line}>
+                    <span className={styles.muted}>
+                      {pending ? PENDING_TEXT[pending.reason] : "Judged with earlier settings."}
+                    </span>
+                  </p>
+                )}
+                <p className={styles.meta}>
+                  Version <code>{r.version}</code> · {r.worker} · {ago(r.judgedAt, now)} ·{" "}
+                  {r.durationMs.toLocaleString("en-GB")} ms
                 </p>
-              )}
-              {r.detail !== null && (
+              </li>
+            );
+          })}
+          {judges.pending
+            .filter((p) => !judges.results.some((r) => r.judgeId === p.judgeId))
+            .map((p) => (
+              <li key={p.judgeId} className={styles.judge}>
+                <div className={styles.judgeHead}>
+                  <div className={styles.judgeName}>
+                    <h3>{p.name}</h3>
+                    <span className={styles.muted}>{p.typeName}</span>
+                  </div>
+                  <span className={`${styles.verdict} ${styles.none}`}>
+                    {p.reason === "waiting" ? "Not judged yet" : "Not judged"}
+                  </span>
+                </div>
+                <p className={styles.weight}>Weight {p.weight.toFixed(1)}</p>
                 <p className={styles.line}>
                   <span className={styles.muted}>
-                    {r.verdict === "abstain" ? "Why it abstained" : "Note"}
-                  </span>{" "}
-                  {r.detail}
-                </p>
-              )}
-              <p className={styles.meta}>
-                Version <code>{r.version}</code> · {r.worker} · {ago(r.judgedAt, now)} ·{" "}
-                {r.durationMs.toLocaleString("en-GB")} ms
-              </p>
-            </li>
-          ))}
-          {judges.pending.map((p) => (
-            <li key={p.judge} className={styles.judge} style={{ order: judgeOrder(p.judge) }}>
-              <div className={styles.judgeHead}>
-                <h3>{judgeName(p.judge)}</h3>
-                <span className={`${styles.verdict} ${styles.none}`}>
-                  {p.reason === "waiting" ? "Not judged yet" : "Not judged"}
-                </span>
-              </div>
-              {p.reason === "no_model" && (
-                <p className={styles.line}>
-                  <span className={styles.muted}>
-                    No model for “{clip.wakeWord}” on any worker.
+                    {p.reason === "no_model"
+                      ? `No model for “${clip.wakeWord}”.`
+                      : PENDING_TEXT[p.reason]}
                   </span>
                 </p>
-              )}
-            </li>
-          ))}
+              </li>
+            ))}
         </ul>
       )}
     </Card>
   );
 }
 
-// The wake word judges first, then speech to text, then any others.
-const ORDER = ["openwakeword", "microwakeword", "stt"];
-function judgeOrder(name: string): number {
-  const i = ORDER.indexOf(name);
-  return i === -1 ? ORDER.length : i;
-}
-function sortJudges<T extends { judge: string }>(list: T[]): T[] {
-  return [...list].sort((a, b) => judgeOrder(a.judge) - judgeOrder(b.judge));
+function weightText(r: Result): string {
+  switch (r.status) {
+    case "counted":
+      return `Weight ${r.weight.toFixed(1)} · counted`;
+    case "not_counted":
+      return "Weight 0 · shown, not counted";
+    case "off":
+      return "Turned off · not counted";
+    case "deleted":
+      return "Deleted judge · not counted";
+  }
 }
 
 function Verdict({ verdict }: { verdict: "yes" | "no" | "abstain" }) {
@@ -142,26 +203,28 @@ function Verdict({ verdict }: { verdict: "yes" | "no" | "abstain" }) {
   );
 }
 
-function summary(clip: Clip): string {
+function summary(clip: Clip, rule: { margin: number; minimum: number } | undefined): string {
   const j = clip.judging;
-  const votes = j.yes + j.no;
-  const said = (n: number) => (n === 1 ? "1 judge says" : `${n} judges say`);
-  const abstained =
-    j.abstain > 0
-      ? ` ${plural(j.abstain, "judge")} could not tell, so ${j.abstain === 1 ? "its" : "their"} answer does not count.`
-      : "";
-  const all = votes === 2 ? "Both judges" : `All ${votes} judges`;
-  switch (j.agreement) {
-    case "agree_yes":
-      return `${all} that answered say this is the wake word, “${clip.wakeWord}”.${abstained}`;
-    case "agree_no":
-      return `${all} that answered say this is not the wake word, “${clip.wakeWord}”.${abstained}`;
-    case "disagree":
-      return `The judges disagree: ${said(j.yes)} it is the wake word, ${said(j.no)} it is not.${abstained}`;
-    case "inconclusive":
-      return `Too few votes to tell: ${votes === 0 ? "no judge could" : "only one judge could"} say whether this is the wake word.${abstained}`;
+  const weight = j.yesWeight + j.noWeight;
+  const score =
+    j.score === null ? "" : ` Score ${signedScore(j.score)} from ${weight.toFixed(1)} of weight.`;
+  const needs = rule
+    ? ` It needs ${signedScore(rule.margin)} or more for yes, ${signedScore(-rule.margin)} or less for no, and at least ${rule.minimum.toFixed(1)} of weight.`
+    : "";
+  const share = j.confidence === null ? "" : percent(j.confidence);
+  switch (j.outcome) {
+    case "yes":
+      return `Yes: ${share} of the voting weight says this is the wake word, “${clip.wakeWord}”.${score}`;
+    case "no":
+      return `No: ${share} of the voting weight says this is not the wake word, “${clip.wakeWord}”.${score}`;
+    case "uncertain":
+      return `Uncertain: the judges lean ${j.yesWeight >= j.noWeight ? "yes" : "no"} (${share}), but not by enough to call it.${score}${needs}`;
+    case "not_enough":
+      return `Not enough evidence: too little weight voted to decide.${score}${needs}`;
     case "waiting":
-      return "No judge has answered yet.";
+      return j.provisional === null
+        ? "No judge that counts has answered yet."
+        : `Waiting for judges. So far: ${OUTCOME_LABELS[j.provisional].toLowerCase()}.${score}`;
   }
 }
 
@@ -176,7 +239,7 @@ function emptyText(status: JudgingStatus | undefined, judges: Judges): string {
     return "No worker is connected at the moment. This clip is judged when one connects.";
   }
   if (judges.pending.length > 0 && judges.pending.every((p) => p.reason === "no_model")) {
-    return "No connected worker can judge this wake word.";
+    return "No judge can judge this wake word.";
   }
   return "Waiting for the judges. A connected worker judges new clips within seconds, and older ones as it works through them, newest first.";
 }

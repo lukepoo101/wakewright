@@ -9,6 +9,7 @@ import { ClipsPage } from "./pages/ClipsPage.tsx";
 import { DevicesPage } from "./pages/DevicesPage.tsx";
 import { EditDevicePage, NewDevicePage } from "./pages/DeviceFormPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
+import { JudgesPage } from "./pages/JudgesPage.tsx";
 import { WorkersPage } from "./pages/WorkersPage.tsx";
 import { CollectionStatus } from "./components/CollectionStatus.tsx";
 import { PlayerProvider } from "./player.tsx";
@@ -79,6 +80,12 @@ const workersRoute = createRoute({
   component: WorkersPage,
 });
 
+const judgesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/judges",
+  component: JudgesPage,
+});
+
 const clipsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/clips",
@@ -105,6 +112,7 @@ const routeTree = rootRoute.addChildren([
   devicesRoute,
   newDeviceRoute,
   editDeviceRoute,
+  judgesRoute,
   workersRoute,
 ]);
 

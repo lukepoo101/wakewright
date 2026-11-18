@@ -31,6 +31,9 @@ const paths = {
   edit: "M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4",
   workers: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  judges: "M12 4v16M8 20h8M5 7h14M5 7l-3 6a3 3 0 0 0 6 0L5 7Zm14 0-3 6a3 3 0 0 0 6 0l-3-6ZM12 4v3",
+  cloud: "M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18Z",
+  scale: "M4 12h16M12 4v16",
   key: "M14 4a6 6 0 1 1-5.2 9L4 17.8V20h3v-2h2v-2h1.8l.4-.4A6 6 0 0 1 14 4Zm2 4v.01",
 } as const;
 

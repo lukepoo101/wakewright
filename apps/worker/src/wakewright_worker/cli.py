@@ -26,8 +26,9 @@ from types import FrameType
 from wakewright_worker import __version__, config
 from wakewright_worker import log as logsetup
 from wakewright_worker.audio import Clip, InvalidAudio, noise, read_wav, silence, tone
-from wakewright_worker.judges import Judge, factories
+from wakewright_worker.judges import JudgeType
 from wakewright_worker.judges.fake import fake_judges
+from wakewright_worker.judges.registry import build
 from wakewright_worker.models import ModelCache, ModelUnavailable
 
 log = logging.getLogger("wakewright_worker")
@@ -38,10 +39,14 @@ HEARTBEAT_MAX_AGE = 300
 SELF_TEST_BUDGET_MS = 10_000
 
 
-def build_judges(cfg: config.Config, names: Sequence[str] | None = None) -> list[Judge]:
-    cache = ModelCache(cfg.cache_dir)
-    available = factories()
-    return [available[n](cache) for n in (names or cfg.judges)]
+def build_judges(cfg: config.Config, names: Sequence[str] | None = None) -> list[JudgeType]:
+    return build(list(names or cfg.judges), ModelCache(cfg.cache_dir))
+
+
+def local_judges(cfg: config.Config) -> list[JudgeType]:
+    """The enabled types that run here; external ones need a judge's
+    settings from the parent, so the offline commands leave them out."""
+    return [j for j in build_judges(cfg) if not j.external]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -154,14 +159,14 @@ def download_models(cfg: config.Config, *, verify: bool = False) -> int:
                 path = cache.ensure(spec)
             except ModelUnavailable as e:
                 failed += 1
-                log.error("model download failed", extra={"judge": judge.name, "error": str(e)})
+                log.error("model download failed", extra={"judge": judge.id, "error": str(e)})
                 continue
-            log.info("model file cached", extra={"judge": judge.name, "path": str(path)})
+            log.info("model file cached", extra={"judge": judge.id, "path": str(path)})
     print(f"model cache: {cache.root}", file=sys.stderr)
     return 1 if failed else 0
 
 
-def _prepare(judges: list[Judge]) -> bool:
+def _prepare(judges: list[JudgeType]) -> bool:
     ok = True
     for j in judges:
         t0 = time.perf_counter()
@@ -170,14 +175,14 @@ def _prepare(judges: list[Judge]) -> bool:
         except Exception as e:  # noqa: BLE001
             log.error(
                 "judge could not be prepared",
-                extra={"judge": j.name, "error": f"{e.__class__.__name__}: {e}"},
+                extra={"judge": j.id, "error": f"{e.__class__.__name__}: {e}"},
             )
             ok = False
         else:
             log.info(
                 "judge ready",
                 extra={
-                    "judge": j.name,
+                    "judge": j.id,
                     "version": j.version,
                     "seconds": round(time.perf_counter() - t0, 1),
                 },
@@ -188,7 +193,7 @@ def _prepare(judges: list[Judge]) -> bool:
 def self_test(cfg: config.Config, wake_word: str) -> int:
     """Every enabled judge must load and answer `no` for generated audio
     that contains no speech, within SELF_TEST_BUDGET_MS per clip."""
-    judges = build_judges(cfg)
+    judges = local_judges(cfg)
     if not _prepare(judges):
         return 1
     samples = {
@@ -201,20 +206,18 @@ def self_test(cfg: config.Config, wake_word: str) -> int:
     for j in judges:
         for label, x in samples.items():
             t0 = time.perf_counter()
-            r = j.judge(Clip(wake_word, x))
+            r = j.judge(Clip(wake_word, x), {})
             ms = round(1000 * (time.perf_counter() - t0))
             bad = r.verdict != "no" or ms > SELF_TEST_BUDGET_MS
             failures += bad
             score = "" if r.score is None else f"{r.score:.3f}"
-            print(
-                f"{j.name:14} {label:12} {r.verdict:8} {score:>7} {ms:>6}{'  FAIL' if bad else ''}"
-            )
+            print(f"{j.id:14} {label:12} {r.verdict:8} {score:>7} {ms:>6}{'  FAIL' if bad else ''}")
     print("self-test " + ("passed" if not failures else f"failed ({failures})"))
     return 1 if failures else 0
 
 
 def judge_files(cfg: config.Config, files: list[Path], wake_word: str, *, as_json: bool) -> int:
-    judges = build_judges(cfg)
+    judges = local_judges(cfg)
     if not _prepare(judges):
         return 1
     for path in files:
@@ -226,8 +229,8 @@ def judge_files(cfg: config.Config, files: list[Path], wake_word: str, *, as_jso
         row: dict[str, object] = {"file": path.name}
         for j in judges:
             t0 = time.perf_counter()
-            r = j.judge(clip)
-            row[j.name] = {
+            r = j.judge(clip, {})
+            row[j.id] = {
                 "verdict": r.verdict,
                 "score": r.score,
                 "transcript": r.transcript,
@@ -239,7 +242,7 @@ def judge_files(cfg: config.Config, files: list[Path], wake_word: str, *, as_jso
         else:
             print(
                 path.name,
-                *(f"{j.name}={_brief(row[j.name])}" for j in judges),
+                *(f"{j.id}={_brief(row[j.id])}" for j in judges),
                 flush=True,
             )
     return 0

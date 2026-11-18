@@ -1,12 +1,14 @@
 import { expect, type Page, test } from "@playwright/test";
 import { decodePairing } from "../../apps/parent/src/pairing.ts";
 import { scoreNumbers } from "../../apps/web/src/score.ts";
+import { DEFAULT_RULE, weigh } from "../../apps/parent/src/outcome.ts";
 import { fakeVerdicts, runFakeWorker } from "../../devtools/fake-worker/src/worker.ts";
 
 // The user's path through a fresh instance, in order: first-run setup,
 // sign out and in, add the fake device, see its clips arrive, play one,
 // have the fake worker judge them as the declared worker and find the
-// disagreements, then create a worker in the UI, connect, pause and delete it.
+// uncertain ones, add a judge on the Judges page and change a weight, then
+// create a worker in the UI, connect, pause and delete it.
 // Later steps build on earlier ones, so the file runs serially.
 test.describe.configure({ mode: "serial" });
 
@@ -93,7 +95,41 @@ test("a new clip appears and plays with its waveform", async ({ page, request })
   await expect(page.getByText(/^0\.\d\d s \/ 3\.00 s$/)).not.toBeVisible({ timeout: 5_000 });
 });
 
-test("the fake worker judges every clip, and the Disagreements filter finds them", async ({
+type Clip = { id: string; wakeWord: string; judging: { outcome: string } };
+type Judge = { id: string; name: string; type: string; weight: number; judged24h: number };
+
+// The outcome each clip should get: the fake's verdicts for the given
+// judges, weighed as the parent weighs them.
+async function expectedOutcomes(
+  page: Page,
+  judges: { instance: string; type: string; weight: number; settings?: Record<string, unknown> }[],
+): Promise<Map<string, string>> {
+  const { clips } = await (await page.request.get("/api/v1/clips?pageSize=100")).json();
+  const out = new Map<string, string>();
+  for (const clip of clips as Clip[]) {
+    const audio = await (await page.request.get(`/api/v1/clips/${clip.id}/audio`)).body();
+    const covered = judges.filter((j) => j.type !== "openwakeword" || clip.wakeWord === "alexa");
+    const results = await fakeVerdicts(
+      new Uint8Array(audio),
+      clip.wakeWord,
+      covered.map((j) => ({ instance: j.instance, type: j.type, settings: j.settings ?? {} })),
+    );
+    const votes = results.map((r) => ({
+      verdict: r.verdict as "yes" | "no" | "abstain",
+      weight: judges.find((j) => j.instance === r.instance)?.weight ?? 0,
+    }));
+    out.set(clip.id, weigh(votes, DEFAULT_RULE).outcome);
+  }
+  return out;
+}
+
+const DEFAULT_JUDGES = [
+  { instance: "stt", type: "stt", weight: 1 },
+  { instance: "openwakeword", type: "openwakeword", weight: 0.3 },
+  { instance: "microwakeword", type: "microwakeword", weight: 0.3 },
+];
+
+test("the fake worker judges every clip, and the Uncertain filter finds them", async ({
   page,
   baseURL,
 }) => {
@@ -101,27 +137,10 @@ test("the fake worker judges every clip, and the Disagreements filter finds them
   await expect(page.getByText("No worker connected")).toBeVisible();
   await expect(page.getByText("never connected")).toBeVisible();
 
-  // What the judges will say about each clip: the fake's verdicts, counted
-  // as the parent counts them (abstentions are not votes).
-  const { clips } = await (await page.request.get("/api/v1/clips?pageSize=100")).json();
-  const expected = new Map<string, string>();
-  for (const clip of clips as { id: string; wakeWord: string }[]) {
-    const audio = await (await page.request.get(`/api/v1/clips/${clip.id}/audio`)).body();
-    const results = await fakeVerdicts(new Uint8Array(audio), clip.wakeWord, [
-      "openwakeword",
-      "microwakeword",
-      "stt",
-    ]);
-    const yes = results.filter((r) => r.verdict === "yes").length;
-    const no = results.filter((r) => r.verdict === "no").length;
-    expected.set(
-      clip.id,
-      yes + no < 2 ? "inconclusive" : yes && no ? "disagree" : yes ? "agree_yes" : "agree_no",
-    );
-  }
-  const disagreeing = [...expected].filter(([, a]) => a === "disagree").map(([id]) => id);
-  // The fake device's clips must include a disagreement for this test to mean anything.
-  expect(disagreeing.length).toBeGreaterThan(0);
+  const expected = await expectedOutcomes(page, DEFAULT_JUDGES);
+  const uncertain = [...expected].filter(([, o]) => o === "uncertain").map(([id]) => id);
+  // The fake device's clips must include an uncertain one for this test to mean anything.
+  expect(uncertain.length).toBeGreaterThan(0);
 
   const controller = new AbortController();
   const worker = runFakeWorker({
@@ -137,35 +156,133 @@ test("the fake worker judges every clip, and the Disagreements filter finds them
         timeout: 20_000,
       })
       .toBe(0);
+    const { clips } = await (await page.request.get("/api/v1/clips?pageSize=100")).json();
+    for (const c of clips as Clip[]) expect(c.judging.outcome).toBe(expected.get(c.id));
 
     await page.reload();
     await expect(page.getByText("1 of 1 worker connected")).toBeVisible();
     await expect(page.getByText(DECLARED)).toBeVisible();
-    await page.getByRole("link", { name: /^\d+ disagreements?$/ }).click();
-    await expect(page.getByLabel("Judges")).toHaveValue("disagree");
-    await expect(page.getByRole("button", { name: /Disagreements/ })).toHaveAttribute(
+    await page.getByRole("link", { name: /^\d+ uncertain$/ }).click();
+    await expect(page.getByLabel("Judges")).toHaveValue("uncertain");
+    await expect(page.getByRole("button", { name: /Uncertain/ })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    const n = disagreeing.length;
+    const n = uncertain.length;
     await expect(page.getByText(`1–${n} of ${n} clips`)).toBeVisible();
     const rows = page.getByRole("list", { name: "Clips" }).getByRole("listitem");
     await expect(rows).toHaveCount(n);
-    await expect(rows.first()).toContainText(/\d of 3 yes/);
+    await expect(rows.first()).toContainText(/Uncertain · \d+% (yes|no)/);
 
-    // A disagreement's page shows each judge's verdict.
+    // An uncertain clip's page shows each judge's verdict and weight.
     await rows.first().getByRole("link").click();
     await expect(page.getByRole("heading", { name: "What the judges said" })).toBeVisible();
-    await expect(page.getByText(/^The judges disagree/)).toBeVisible();
+    await expect(page.getByText(/^Uncertain: the judges lean/)).toBeVisible();
     for (const judge of ["openWakeWord", "microWakeWord", "Speech to text"]) {
-      await expect(page.getByRole("heading", { name: judge })).toBeVisible();
+      await expect(page.getByRole("heading", { name: judge, exact: true })).toBeVisible();
     }
+    await expect(page.getByText("Weight 1.0 · counted")).toBeVisible();
+    await expect(page.getByText("Weight 0.3 · counted").first()).toBeVisible();
 
     // The quick filter turns off again.
     await page.getByRole("link", { name: "All clips" }).click();
-    await page.getByRole("button", { name: /Disagreements/ }).click();
+    await page.getByRole("button", { name: /Uncertain/ }).click();
     await expect(page.getByLabel("Judges")).toHaveValue("");
     await expect(page.getByText(`of ${expected.size} clips`)).toBeVisible();
+  } finally {
+    controller.abort();
+    await worker;
+  }
+});
+
+test("a judge added on the Judges page judges clips; a new weight changes outcomes at once", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  const controller = new AbortController();
+  const worker = runFakeWorker({
+    parentUrl: baseURL ?? "",
+    token: WORKER_TOKEN,
+    name: "e2e-worker",
+    waitSeconds: 2,
+    signal: controller.signal,
+  });
+  const judges = async () =>
+    ((await (await page.request.get("/api/v1/judges")).json()).judges as Judge[]) ?? [];
+  try {
+    await page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Judges" })
+      .click();
+    await expect(page.getByRole("heading", { name: "Judges", exact: true })).toBeVisible();
+    await expect(page.getByRole("article", { name: "Speech to text" })).toContainText("1.0");
+    await expect(page.getByRole("heading", { name: "How the outcome is decided" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Add judge" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel(/OpenAI-compatible transcription/).check();
+    await expect(dialog.getByText("This judge sends clips to a third party")).toBeVisible();
+    await dialog.getByLabel("Name").fill("Cloud");
+    await dialog.getByLabel(/^API base URL/).fill("https://stt.example.test/v1");
+    await dialog.getByLabel(/^API key/).fill("sk-e2e-not-a-real-key");
+    await dialog.getByLabel(/^Model/).fill("whisper-1");
+    await dialog.getByLabel(/^On: run it/).check();
+    await dialog.getByRole("button", { name: "Add judge" }).click();
+    await expect(dialog.getByText(/Confirm that clips may go/)).toBeVisible();
+    await dialog.getByLabel(/I understand this sends clips to stt.example.test/).check();
+    await dialog.getByRole("button", { name: "Add judge" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const card = page.getByRole("article", { name: "Cloud" });
+    await expect(card.getByText("Sends clips to a third party")).toBeVisible();
+    await expect(card.getByText("API key: set")).toBeVisible();
+    expect(await page.content()).not.toContain("sk-e2e-not-a-real-key");
+
+    const total = (await (await page.request.get("/api/v1/clips/summary")).json()).total;
+    await expect
+      .poll(async () => (await judges()).find((j) => j.name === "Cloud")?.judged24h, {
+        timeout: 20_000,
+      })
+      .toBe(total);
+    await expect(card.getByText(`${total} clips judged`)).toBeVisible({ timeout: 15_000 });
+    const cloud = (await judges()).find((j) => j.name === "Cloud") as Judge;
+    const withCloud = [...DEFAULT_JUDGES, { instance: cloud.id, type: cloud.type, weight: 1 }];
+    const before = await expectedOutcomes(page, withCloud);
+    const outcomes = async () =>
+      new Map(
+        ((await (await page.request.get("/api/v1/clips?pageSize=100")).json()).clips as Clip[]).map(
+          (c) => [c.id, c.judging.outcome],
+        ),
+      );
+    expect(await outcomes()).toEqual(before);
+
+    // Weight 0 for Parakeet, from its Edit form: outcomes follow at once.
+    const runs = Object.fromEntries((await judges()).map((j) => [j.id, j.judged24h]));
+    await page.getByRole("button", { name: "Edit Speech to text" }).click();
+    await page.getByRole("dialog").getByLabel("Weight").fill("0");
+    await page.getByRole("dialog").getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("article", { name: "Speech to text" })).toContainText(
+      "not counted",
+    );
+    const after = await expectedOutcomes(
+      page,
+      withCloud.map((j) => (j.instance === "stt" ? { ...j, weight: 0 } : j)),
+    );
+    expect([...after].some(([id, o]) => before.get(id) !== o)).toBe(true);
+    expect(await outcomes()).toEqual(after);
+    // Nothing was judged again.
+    await page.waitForTimeout(2_000);
+    expect(Object.fromEntries((await judges()).map((j) => [j.id, j.judged24h]))).toEqual(runs);
+
+    // Back to 1.0, and the Cloud judge deleted, as at the start.
+    await page.request.patch("/api/v1/judges/stt", {
+      headers: { "Content-Type": "application/json" },
+      data: { weight: 1 },
+    });
+    await card.getByRole("button", { name: "Delete Cloud" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete judge" }).click();
+    await expect(page.getByRole("article", { name: "Cloud" })).toHaveCount(0);
   } finally {
     controller.abort();
     await worker;
@@ -177,7 +294,10 @@ test("a worker created in the UI: token shown once, connects, pauses, is deleted
   request,
 }) => {
   await signIn(page);
-  await page.getByRole("link", { name: "Workers", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Workers" })
+    .click();
   await expect(page.getByRole("heading", { name: "Workers", exact: true })).toBeVisible();
   // The declared worker is listed, read-only.
   const declared = page.getByRole("article", { name: DECLARED });
@@ -251,7 +371,7 @@ test("a worker created in the UI: token shown once, connects, pauses, is deleted
     await expect(page.getByRole("article", { name: "Laptop" })).toHaveCount(0);
     const refused = await request.post("/api/worker/v1/jobs/claim", {
       headers: { Authorization: `Bearer ${token}` },
-      data: { protocol: 1, worker: { name: "x", version: "1" }, judges: [], waitSeconds: 0 },
+      data: { protocol: 2, worker: { name: "x", version: "1" }, types: [], waitSeconds: 0 },
     });
     expect(refused.status()).toBe(401);
   } finally {

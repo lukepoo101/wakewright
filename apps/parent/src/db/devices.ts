@@ -150,9 +150,10 @@ export function getSecret(db: Database, id: string): Uint8Array | null {
   return row ? new Uint8Array(row.ciphertext) : null;
 }
 
-/** Deletes secrets no device refers to any more. */
+/** Deletes device passwords no device refers to any more. */
 export function deleteUnusedSecrets(db: Database): void {
   db.run(
-    "DELETE FROM secrets WHERE id NOT IN (SELECT secret_id FROM devices WHERE secret_id IS NOT NULL)",
+    `DELETE FROM secrets WHERE kind = 'device_password'
+       AND id NOT IN (SELECT secret_id FROM devices WHERE secret_id IS NOT NULL)`,
   );
 }

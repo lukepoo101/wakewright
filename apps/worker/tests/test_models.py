@@ -141,10 +141,10 @@ def test_pinned_specs_are_well_formed() -> None:
     """Every built-in model is pinned to a revision with a full SHA-256."""
     from wakewright_worker.judges.microwakeword import MicroWakeWordJudge
     from wakewright_worker.judges.openwakeword import OpenWakeWordJudge
-    from wakewright_worker.judges.stt import SpeechToTextJudge
+    from wakewright_worker.judges.stt import ParakeetJudge
 
     cache = ModelCache(Path("unused"))
-    for judge in (OpenWakeWordJudge(cache), MicroWakeWordJudge(cache), SpeechToTextJudge(cache)):
+    for judge in (OpenWakeWordJudge(cache), MicroWakeWordJudge(cache), ParakeetJudge(cache)):
         files = judge.model_files()
         assert files
         for f in files:

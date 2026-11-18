@@ -17,9 +17,10 @@ changes its settings or installs anything on it.
 
 > **Status: pre-alpha.** Wakewright collects Kiosk Satellite clips,
 > stores them, and lets you browse and play them in a web UI. A worker
-> judges each clip with openWakeWord, microWakeWord and speech to text, and
-> the UI shows where the judges disagree with each other and with the
-> device. Labelling, datasets and training are not built yet. Two images,
+> judges each clip with the judges you configure (openWakeWord,
+> microWakeWord, local speech to text, and optional cloud speech-to-text
+> APIs), weighs their votes into an outcome, and the UI shows the uncertain
+> clips and where the outcome disagrees with the device. Labelling, datasets and training are not built yet. Two images,
 > `ghcr.io/lukepoo101/wakewright` (the parent) and
 > `ghcr.io/lukepoo101/wakewright-worker`, for amd64 and arm64, carry each
 > [release](https://github.com/lukepoo101/wakewright/releases)'s version
@@ -46,9 +47,10 @@ changes its settings or installs anything on it.
 
 The **parent** is one TypeScript process on [Bun](https://bun.com): a
 [Hono](https://hono.dev) API, the React SPA it serves, and SQLite. The
-**worker** is a separate Python process that judges clips with
-openWakeWord, microWakeWord and speech to text and needs no open port
-([docs/worker.md](docs/worker.md)); training comes in later versions. See
+**worker** is a separate Python process that judges clips with plugin
+judge types (openWakeWord, microWakeWord, speech to text, cloud
+transcription APIs) and needs no open port
+([docs/worker.md](docs/worker.md), [docs/judges.md](docs/judges.md)); training comes in later versions. See
 [docs/architecture.md](docs/architecture.md), and
 [docs/design/](docs/design/) for where the project is going and why.
 

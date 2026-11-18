@@ -22,10 +22,10 @@ one or the other, not both. One trailing newline in a file is ignored.
 | `WAKEWRIGHT__ADMIN__USERNAME`             | `admin`                       | The admin account's name when the password is set by configuration.                                                                                                                                                                               |
 | `WAKEWRIGHT__ADMIN__PASSWORD`             | none                          | The admin password, at least 12 characters. When set (here or in `_FILE`), configuration owns the account: it is created or updated on every start, a changed password signs everyone out, and first-run setup is skipped.                        |
 | `WAKEWRIGHT__ADMIN__PASSWORD_FILE`        | none                          | A file holding the admin password.                                                                                                                                                                                                                |
-| `WAKEWRIGHT__SECRET_KEY`                  | generated                     | The key that encrypts stored device passwords: 32 random bytes in base64 (`openssl rand -base64 32`). Without it, Wakewright creates `secret.key` in the data directory on first start.                                                           |
+| `WAKEWRIGHT__SECRET_KEY`                  | generated                     | The key that encrypts stored device passwords and judges' API keys: 32 random bytes in base64 (`openssl rand -base64 32`). Without it, Wakewright creates `secret.key` in the data directory on first start.                                      |
 | `WAKEWRIGHT__SECRET_KEY_FILE`             | none                          | A file holding the secret key.                                                                                                                                                                                                                    |
 | `WAKEWRIGHT__WORKERS__<NAME>__TOKEN`      | none                          | Declares a worker named after `<NAME>` with this token, at least 16 characters ([below](#workers)). Or `__TOKEN_FILE`.                                                                                                                            |
-| `WAKEWRIGHT__WORKERS__<NAME>__JUDGES`     | `all`                         | The judges a declared worker may run, separated by commas (`openwakeword,microwakeword,stt`), or `all`.                                                                                                                                           |
+| `WAKEWRIGHT__WORKERS__<NAME>__JUDGES`     | `all`                         | The judge types a declared worker may run, separated by commas (`openwakeword,microwakeword,stt,openai-compatible,elevenlabs`), or `all`.                                                                                                         |
 | `WAKEWRIGHT__WORKERS__<NAME>__NOTES`      | none                          | Notes shown with a declared worker.                                                                                                                                                                                                               |
 | `WAKEWRIGHT__WORKERS__<NAME>__ENABLED`    | `true`                        | `false` pauses a declared worker: it stays connected but gets no clips.                                                                                                                                                                           |
 | `WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS` | `10`                          | How often each device is asked for new clips (1–3600). A device keeps only its last 10 wake words and 10 near misses, so keep this well under the time it takes to hear 10.                                                                       |
@@ -72,7 +72,8 @@ both show on the Workers page:
 - **In the UI**: on the Workers page, choose Add worker. Wakewright shows
   the token once, with a pairing string (this server's address and the
   token in one value) and the command to start a worker with it. There you
-  can also rename, pause, limit the judges, give a new token or delete it.
+  can also rename, pause, limit the judge types it may run, give a new token
+  or delete it.
 - **In configuration**, for GitOps: set
   `WAKEWRIGHT__WORKERS__<NAME>__TOKEN` or `__TOKEN_FILE`, plus the optional
   `__JUDGES`, `__NOTES` and `__ENABLED`. `<NAME>` is letters and digits
@@ -89,13 +90,26 @@ name; if configuration declares the name of a worker created in the UI,
 that worker is renamed `<name>-created-here` and keeps working. Two workers
 may not share a token.
 
-A worker is sent clips only for judges it offers and may run, and none
-while paused. Pausing, deleting or giving a new token takes effect at
+A worker is sent clips only for judges whose type it offers and may run,
+and none while paused. The judges themselves (types, settings, API keys,
+weights and limits) are set on the Judges page and kept in the database,
+not in configuration ([judges.md](judges.md)); their secret settings are
+encrypted with the secret key below. Pausing, deleting or giving a new token takes effect at
 once: the clips it was judging go to other workers, and a deleted or
 replaced token is refused. Verdicts it already gave stay, under its name.
 See [worker.md](worker.md) to run Wakewright's worker (its own
 `WAKEWRIGHT_WORKER__*` settings are listed there) and
 [workers.md](workers.md) for the protocol.
+
+### Upgrading to 0.3
+
+0.3.0 speaks worker protocol 2: upgrade the parent and every worker
+together. An older worker is refused (it logs that the parent does not
+speak its protocol) until it is upgraded. The database migration turns the
+three judges into judges on the new Judges page, with weights 1.0 (speech
+to text) and 0.3 (each wake word model), keeps every verdict and judges
+nothing again. A worker's "may run" list keeps its meaning: the names are
+now judge type ids, and the three are unchanged.
 
 ### Upgrading from 0.1
 
@@ -116,7 +130,7 @@ can, so each can be paused and revoked alone.
 
 ## The secret key
 
-Device passwords are stored encrypted with AES-256-GCM. The key never goes
+Device passwords and judges' secret settings (API keys) are stored encrypted with AES-256-GCM. The key never goes
 into the database, so a copy of the database or one of its backups does not
 reveal them.
 
@@ -127,4 +141,5 @@ reveal them.
   secret store and pass it as `WAKEWRIGHT__SECRET_KEY_FILE`.
 - If the key changes, stored passwords can no longer be read: each device
   shows "The stored password cannot be read" until you enter its password
-  again. Clips are not affected.
+  again, and each judge with an API key fails until you enter the key
+  again. Clips and verdicts are not affected.
