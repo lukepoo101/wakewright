@@ -156,6 +156,51 @@ def test_openai_compatible_needs_no_key_for_a_server_without_one(service: FakeSe
         ),
         (Reply(503, {"error": "overloaded"}), "server", None, "HTTP 503"),
         (
+            # A proxy passing on a provider's "no credit left", as LiteLLM does.
+            Reply(
+                402,
+                {
+                    "error": {
+                        "message": "litellm.PaymentRequiredError: UpstreamException - "
+                        '[{ "error": { "code": 402, "message": "Your prepayment credits are '
+                        'depleted. Manage your project and billing.", "status": '
+                        '"RESOURCE_EXHAUSTED" } }]',
+                        "code": "402",
+                    }
+                },
+            ),
+            "quota",
+            None,
+            "quota used up (HTTP 402)",
+        ),
+        (Reply(402, {"error": "Payment Required"}), "quota", None, "quota used up"),
+        (Reply(402, ""), "quota", None, "quota used up"),
+        (
+            Reply(
+                400, {"error": {"message": "Account out of funds", "code": "insufficient_quota"}}
+            ),
+            "quota",
+            None,
+            "quota used up (HTTP 400)",
+        ),
+        (
+            Reply(403, {"error": {"message": "Billing is not enabled for this project"}}),
+            "quota",
+            None,
+            "quota used up (HTTP 403)",
+        ),
+        (
+            Reply(400, {"error": {"status": "RESOURCE_EXHAUSTED"}}),
+            "quota",
+            None,
+            "quota used up",
+        ),
+        (Reply(408, {"error": "request timeout"}), "network", None, "in time (HTTP 408)"),
+        (Reply(425, {"error": "too early"}), "network", None, "in time (HTTP 425)"),
+        (Reply(409, {"error": "conflict"}), "other", None, "refused the request (HTTP 409)"),
+        (Reply(410, {"error": "gone"}), "other", None, "refused the request (HTTP 410)"),
+        (Reply(415, {"error": "unsupported"}), "other", None, "refused the request (HTTP 415)"),
+        (
             Reply(404, {"error": {"message": "The model `whisper-9` does not exist"}}),
             "other",
             None,
@@ -185,9 +230,13 @@ def test_openai_compatible_failures_pause_the_judge(
     assert KEY[:8] not in caught.value.message
 
 
-def test_a_clip_the_service_refuses_is_an_abstention(service: FakeService) -> None:
-    judge, settings = openai(service)
-    service.replies = [Reply(400, {"error": {"message": f"Audio file is too short ({KEY})"}})]
+@pytest.mark.parametrize("status", [400, 413, 422])
+@pytest.mark.parametrize("make", [openai, eleven])
+def test_a_clip_the_service_refuses_is_an_abstention(
+    service: FakeService, make: Any, status: int
+) -> None:
+    judge, settings = make(service)
+    service.replies = [Reply(status, {"error": {"message": f"Audio file is too short ({KEY})"}})]
     result = judge.judge(CLIP, settings)
     assert result.verdict == "abstain"
     assert result.detail is not None
@@ -264,6 +313,12 @@ def test_elevenlabs_audio_events_never_match_and_stay_in_the_transcript(
             "quota",
         ),
         (Reply(429, {"detail": {"status": "too_many_concurrent_requests"}}), "rate_limit"),
+        (
+            # The status alone names it; the message has no quota wording.
+            Reply(400, {"detail": {"status": "quota_exceeded", "message": "Request refused"}}),
+            "quota",
+        ),
+        (Reply(402, {"detail": {"message": "Payment required"}}), "quota"),
         (
             Reply(422, {"detail": [{"loc": ["body", "model_id"], "msg": "invalid model_id"}]}),
             "other",

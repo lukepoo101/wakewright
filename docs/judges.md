@@ -98,15 +98,20 @@ On the **Judges** page:
 
 A judge can answer yes, no, **can't tell** (recorded, not retried) or
 **fail for now** (nothing recorded). A failure pauses the judge and shows
-why on its card:
+why on its card. The cloud types sort an error answer like this:
 
-| Failure                      | Shown as                      | Tried again                                         |
-| ---------------------------- | ----------------------------- | --------------------------------------------------- |
-| refused key (401, 403)       | Failing: invalid API key      | after 15 minutes, doubling to 6 hours               |
-| quota used up                | Paused until the quota resets | when the service says, else 1 hour doubling         |
-| rate limited (429)           | Rate limited                  | when the service says, else 30 s doubling to 15 min |
-| network, timeout, 5xx        | Failing: … ; next try at …    | 30 s doubling to 30 minutes                         |
-| wrong address or model (404) | Failing: not found …          | 2 minutes doubling to 1 hour                        |
+| Failure                                                                        | Shown as                      | Tried again                                         |
+| ------------------------------------------------------------------------------ | ----------------------------- | --------------------------------------------------- |
+| refused key (401, 403)                                                         | Failing: invalid API key      | after 15 minutes, doubling to 6 hours               |
+| quota or credit used up (any 402; quota, billing or credit wording with a 4xx) | Paused until the quota resets | when the service says, else 1 hour doubling         |
+| rate limited (429)                                                             | Rate limited                  | when the service says, else 30 s doubling to 15 min |
+| network, timeout, 408, 425, 5xx                                                | Failing: … ; next try at …    | 30 s doubling to 30 minutes                         |
+| wrong address or model (404), a refused setting, any other 4xx                 | Failing: …                    | 2 minutes doubling to 1 hour                        |
+| the service would not take this clip (400, 413, 422)                           | can't tell (recorded)         | not retried                                         |
+
+The rule for the cloud types: "can't tell" is recorded only when the fault
+can be this clip. Anything about the account, the settings or the service
+pauses the judge, so clips are never written off while credit runs out.
 
 Saving new settings or turning the judge on again tries it at once. A clip
 that keeps failing on its own while others work is given up on with a
