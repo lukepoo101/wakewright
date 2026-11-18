@@ -1,19 +1,168 @@
+/* Phone first: top bar, content, bottom navigation bar. From 720 px the
+   navigation becomes a labelled rail on the left. */
+
 .shell {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "header"
+    "main";
 }
 
-.header {
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface);
-}
-
-.brand {
+.skip {
+  position: absolute;
+  left: var(--space-3);
+  top: -4rem;
+  z-index: 10;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-radius: var(--radius-small);
   font-weight: 600;
 }
 
+.skip:focus {
+  top: var(--space-3);
+}
+
+.header {
+  grid-area: header;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 3.5rem;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  text-decoration: none;
+  border-radius: var(--radius-small);
+}
+
+.status {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.tools {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.nav {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 5;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  min-height: var(--bar-height);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  color: var(--color-text);
+}
+
+.active,
+.active:hover {
+  color: var(--color-accent);
+}
+
 .main {
-  padding: var(--space-4);
-  max-width: 60rem;
+  grid-area: main;
+  width: 100%;
+  max-width: 80rem;
+  padding: var(--space-5) var(--space-4) calc(var(--bar-height) + var(--space-6));
+  /* Keep the focused element clear of the sticky header (WCAG 2.4.11). */
+  scroll-padding-top: 4.5rem;
+}
+
+.main:focus {
+  outline: none;
+}
+
+@media (min-width: 720px) {
+  .shell {
+    grid-template-columns: var(--rail-width) 1fr;
+    grid-template-areas:
+      "header header"
+      "nav main";
+  }
+
+  .header {
+    padding: var(--space-2) var(--space-5);
+  }
+
+  .nav {
+    grid-area: nav;
+    position: sticky;
+    top: 3.5rem;
+    align-self: start;
+    height: calc(100vh - 3.5rem);
+    border-top: 0;
+    border-right: 1px solid var(--color-border);
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .nav ul {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .navLink {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    min-height: 2.75rem;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-small);
+    font-size: var(--text-body);
+  }
+
+  .navLink:hover {
+    background: var(--color-surface-2);
+  }
+
+  .active,
+  .active:hover {
+    background: var(--color-accent-soft);
+  }
+
+  .main {
+    padding: var(--space-6) var(--space-6) var(--space-7);
+  }
 }

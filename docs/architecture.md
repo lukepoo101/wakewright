@@ -38,8 +38,13 @@ word clips, store them, and browse and play them.
   `/data/blobs/sha256/`. The database must live on block or local storage,
   never NFS or CephFS.
 - **Configuration**: `WAKEWRIGHT__SECTION__KEY` environment variables,
-  validated by zod at start-up. Settings a user edits (devices and so on)
-  live in the database.
+  validated by zod at start-up ([configuration.md](configuration.md)).
+  Settings a user edits (devices and so on) live in the database.
+- **Sign-in**: one local admin account (`Bun.password`, argon2id), created
+  in first-run setup or from configuration, with server-side sessions in an
+  `HttpOnly`, `SameSite=Lax` cookie, a same-origin check on changes and a
+  throttled login ([ADR 0009](adr/0009-admin-account-and-sessions.md)). The
+  SPA shows setup or sign-in in place of every screen until it has a session.
 - **Health**: `/healthz` (the process is alive) and `/readyz` (the database
   is migrated and writable). The image's `HEALTHCHECK` runs
   `main.js healthcheck`, because the distroless base has no shell or curl.
@@ -52,6 +57,7 @@ apps/parent/          @wakewright/parent: the server
   src/dev.ts          development entry: same API + the SPA via Bun's HTML import (HMR)
   src/boot.ts         shared start-up: open DB, migrate, build the API, start loops
   src/config.ts       WAKEWRIGHT__* environment schema
+  src/auth.ts         admin account, sessions, login throttle
   src/log.ts          JSON-lines logger
   src/spa.ts          serves the built SPA
   src/api/            one file per API area, mounted in api/index.ts (exports AppType)
@@ -60,7 +66,7 @@ apps/parent/          @wakewright/parent: the server
   test/               bun test: unit and in-process integration tests
 apps/web/             @wakewright/web: the SPA
   index.html  src/{main.tsx,router.tsx,api.ts,tokens.css}
-  src/pages/          one component per screen, routed in router.tsx
+  src/pages/          one component per screen, routed in router.tsx (AuthPages: setup, sign-in)
   src/components/     shared components
 devtools/
   dev.ts              `mise run dev`: parent + two fake devices
@@ -75,7 +81,6 @@ docs/                 this documentation and the ADRs
 
 | Feature                                                   | Location                                                                                                         |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Admin login, signed session cookie, CSRF check            | `apps/parent/src/auth.ts`, `src/api/session.ts`, `apps/web/src/pages/LoginPage.tsx`                              |
 | Device password encryption (AES-256-GCM, `crypto.subtle`) | `apps/parent/src/crypto.ts`                                                                                      |
 | Schema for users, devices, secrets, blobs, clips          | `apps/parent/src/db/migrations/0001_init.sql` (editable until v0.0.1 is released), queries in `src/db/<area>.ts` |
 | Content-addressed blob store                              | `apps/parent/src/blobs.ts`                                                                                       |
@@ -101,3 +106,4 @@ Architecture decisions are recorded in [adr/](adr/):
 6. [Tooling: Bun, Biome for lint, mise tasks](adr/0006-tooling.md)
 7. [No telemetry](adr/0007-no-telemetry.md)
 8. [Read-only device access](adr/0008-read-only-device-access.md)
+9. [One local admin account with server-side sessions](adr/0009-admin-account-and-sessions.md)

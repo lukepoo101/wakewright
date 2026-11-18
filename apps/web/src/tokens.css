@@ -1,32 +1,113 @@
-/* Design tokens: custom properties for light and dark themes. Components use
-   CSS Modules and read only these variables. */
+/* Design tokens: custom properties for the light and dark themes, then a few
+   element defaults. Components use CSS Modules and read only these
+   variables. Dark follows prefers-color-scheme unless the user picked a
+   theme (html[data-theme]). Text colours meet 4.5:1 and UI colours 3:1
+   against --color-surface and --color-bg in both themes. */
 :root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f5f7;
+  color-scheme: light;
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-2: #eceef2;
+  --color-border: #d3d7de;
+  --color-border-strong: #8a919c;
   --color-text: #1b1d21;
-  --color-text-muted: #5b616e;
+  --color-text-muted: #545a65;
   --color-accent: #2f5bd3;
+  --color-accent-hover: #2549b0;
+  --color-on-accent: #ffffff;
+  --color-accent-soft: #e6ecfb;
   --color-ok: #1a7f37;
-  --color-error: #c62828;
+  --color-ok-soft: #e3f3e7;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fdf1d8;
+  --color-error: #c0262d;
+  --color-error-soft: #fbe6e6;
+  --color-fired: #0f766e;
+  --color-near-miss: #7c4dbd;
+  --color-wave: #9aa3b2;
+  --color-wave-progress: #2f5bd3;
+  --color-focus: #2f5bd3;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 1px 3px rgb(16 24 40 / 8%);
+
   --space-1: 0.25rem;
   --space-2: 0.5rem;
-  --space-3: 1rem;
-  --space-4: 1.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
   --radius: 0.5rem;
+  --radius-small: 0.375rem;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --text-small: 0.875rem;
+  --text-body: 1rem;
+  --text-large: 1.25rem;
+  --text-title: 1.5rem;
+  --rail-width: 13rem;
+  --bar-height: 4rem;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #121418;
-    --color-surface: #1d2026;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #111317;
+    --color-surface: #1a1d23;
+    --color-surface-2: #242830;
+    --color-border: #353b45;
+    --color-border-strong: #7d8592;
     --color-text: #e8eaed;
-    --color-text-muted: #a0a6b1;
+    --color-text-muted: #a7aeb9;
     --color-accent: #8ab0ff;
-    --color-ok: #57c27a;
-    --color-error: #ff7a7a;
+    --color-accent-hover: #a8c4ff;
+    --color-on-accent: #0b1a3a;
+    --color-accent-soft: #1f2a45;
+    --color-ok: #5cc77f;
+    --color-ok-soft: #17301f;
+    --color-warn: #e6b450;
+    --color-warn-soft: #3a2e12;
+    --color-error: #ff8080;
+    --color-error-soft: #3d1c1e;
+    --color-fired: #4fd1c5;
+    --color-near-miss: #c4a1ff;
+    --color-wave: #5d6573;
+    --color-wave-progress: #8ab0ff;
+    --color-focus: #8ab0ff;
+    --shadow: none;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #111317;
+  --color-surface: #1a1d23;
+  --color-surface-2: #242830;
+  --color-border: #353b45;
+  --color-border-strong: #7d8592;
+  --color-text: #e8eaed;
+  --color-text-muted: #a7aeb9;
+  --color-accent: #8ab0ff;
+  --color-accent-hover: #a8c4ff;
+  --color-on-accent: #0b1a3a;
+  --color-accent-soft: #1f2a45;
+  --color-ok: #5cc77f;
+  --color-ok-soft: #17301f;
+  --color-warn: #e6b450;
+  --color-warn-soft: #3a2e12;
+  --color-error: #ff8080;
+  --color-error-soft: #3d1c1e;
+  --color-fired: #4fd1c5;
+  --color-near-miss: #c4a1ff;
+  --color-wave: #5d6573;
+  --color-wave-progress: #8ab0ff;
+  --color-focus: #8ab0ff;
+  --shadow: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
@@ -34,5 +115,52 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+  font-size: var(--text-body);
   line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--text-title);
+}
+
+h2 {
+  font-size: var(--text-large);
+}
+
+h3 {
+  font-size: var(--text-body);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+kbd {
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  padding: 0 0.3em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
