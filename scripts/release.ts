@@ -4,7 +4,8 @@
 //   mise run release 0.0.1 --dry-run  print the changelog section only
 //
 // The pull request sets every workspace package to the new version (and
-// bun.lock with them) and adds the version's section to CHANGELOG.md:
+// bun.lock with them), points the install examples at it (a stable release
+// only) and adds the version's section to CHANGELOG.md:
 // GitHub's generated release notes for the pull requests merged since the
 // previous release, grouped by label (.github/release.yml). Edit the section
 // in the pull request if it needs it. Merging the pull request is the
@@ -83,6 +84,23 @@ export function setPythonVersion(pyproject: string, version: string): string {
   return next;
 }
 
+// The files whose image references follow the newest stable release, so
+// the examples users copy name a release rather than `edge`.
+export const PINNED_EXAMPLES = [
+  "deploy/compose/docker-compose.yml",
+  "docs/getting-started.md",
+  "docs/worker.md",
+];
+
+// Point every `ghcr.io/lukepoo101/wakewright[-worker]:<release or edge>`
+// reference at `version`.
+export function pinImages(text: string, version: string): string {
+  return text.replace(
+    /(ghcr\.io\/lukepoo101\/wakewright(?:-worker)?):(?:edge|\d+\.\d+\.\d+)\b/g,
+    `$1:${version}`,
+  );
+}
+
 async function main(argv: string[]) {
   const dryRun = argv.includes("--dry-run");
   const version = argv.find((a) => !a.startsWith("--"));
@@ -138,6 +156,12 @@ async function main(argv: string[]) {
     // hook (`mise run check`) can run in this worktree.
     await $`bun install`.cwd(dir).quiet();
     await $`uv sync --frozen`.cwd(join(dir, "apps", "worker")).quiet();
+    if (!isPrerelease(version)) {
+      for (const file of PINNED_EXAMPLES) {
+        const path = join(dir, file);
+        await Bun.write(path, pinImages(await Bun.file(path).text(), version));
+      }
+    }
     const changelog = join(dir, "CHANGELOG.md");
     await Bun.write(changelog, insert(await Bun.file(changelog).text(), version, newSection));
     await $`bun fmt CHANGELOG.md`.cwd(dir).quiet();

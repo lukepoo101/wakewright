@@ -15,7 +15,9 @@ mise run release 0.0.1
 This opens a pull request titled "Release 0.0.1" that sets the version in
 every workspace package and `bun.lock`, in the worker's
 `apps/worker/pyproject.toml` and `uv.lock` (in PEP 440 spelling, so
-`0.1.0-rc.1` becomes `0.1.0rc1` there), and adds the `0.0.1` section to
+`0.1.0-rc.1` becomes `0.1.0rc1` there), points the image references in the
+Compose file, `docs/getting-started.md` and `docs/worker.md` at the new
+version (stable releases only), and adds the `0.0.1` section to
 `CHANGELOG.md`: the pull requests merged since the previous stable release,
 grouped by label. Read the section in the pull request; edit it on the
 branch if an entry needs rewording or regrouping. Then **merge the pull
