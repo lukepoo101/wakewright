@@ -7,6 +7,21 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.0.1-rc.2 - 2026-11-18
+
+### CI and tooling
+
+- Attach the build-stage SBOMs to releases and document cosign verification by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/13
+
+### Other changes
+
+- Add Kiosk Satellite devices and collect their clips by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/8
+- Browse and play collected clips, with a home dashboard by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/12
+- Document running Wakewright with Docker, its devices and privacy by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/14
+- Stop repeating device error titles and shorten the kind filter by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/15
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.1-rc.1...v0.0.1-rc.2
+
 ## 0.0.1-rc.1 - 2026-11-18
 
 ### Documentation
