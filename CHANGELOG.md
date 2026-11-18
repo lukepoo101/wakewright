@@ -7,6 +7,14 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.2.0-rc.1 - 2026-11-18
+
+### Breaking changes
+
+- Give each worker its own token, managed on a new Workers page or declared in configuration by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/39
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.1.0...v0.2.0-rc.1
+
 ## 0.1.0 - 2026-11-18
 
 Clips are now judged. A second image, `ghcr.io/lukepoo101/wakewright-worker`,

@@ -389,7 +389,7 @@ wheels = [
 
 [[package]]
 name = "wakewright-worker"
-version = "0.1.0"
+version = "0.2.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
