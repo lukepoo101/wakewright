@@ -39,6 +39,12 @@ export function useSetPaused() {
   });
 }
 
+/** The server's message, unless it only repeats the advice's title. */
+export function detailFor(code: string, message: string): string | null {
+  const plain = (s: string) => s.toLowerCase().replace(/[.\s]+$/, "");
+  return plain(message) === plain(adviceFor(code).title) ? null : message;
+}
+
 /** What went wrong, in words, and what to do about it. */
 export function adviceFor(code: string): { title: string; fix: string } {
   switch (code) {

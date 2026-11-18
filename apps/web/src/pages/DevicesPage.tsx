@@ -13,7 +13,14 @@ import {
   Loading,
   PageHeader,
 } from "../components/ui.tsx";
-import { adviceFor, type Device, devicesKey, useCollection, useDevices } from "../devices.ts";
+import {
+  adviceFor,
+  detailFor,
+  type Device,
+  devicesKey,
+  useCollection,
+  useDevices,
+} from "../devices.ts";
 import { ago, plural, shortDateTime, useNow } from "../format.ts";
 import styles from "./DevicesPage.module.css";
 
@@ -159,7 +166,7 @@ function DeviceCard({ device }: { device: Device }) {
         <div className={styles.alerts}>
           {status.error && advice && (
             <Alert tone="error" title={advice.title} live="status">
-              <p>{status.error.message}</p>
+              {detailFor(status.error.code, status.error.message) && <p>{status.error.message}</p>}
               <p>{advice.fix}</p>
             </Alert>
           )}
