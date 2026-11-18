@@ -48,10 +48,13 @@ jobs:
           release=false
           if [ "$version" != 0.0.0 ] && ! git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
             release=true
-            latest=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
-            # A release must be newer than every existing tag.
-            if [ -n "$latest" ] && [ "$(printf '%s\n' "${latest#v}" "$version" | sort -V | tail -n 1)" != "$version" ]; then
-              echo "::error::Version $version is not newer than the latest tag $latest."
+            # A release must be newer than every existing tag. A pre-release
+            # sorts before its release (0.0.1-rc.2 < 0.0.1): `sort -V` puts
+            # "~" before anything, so compare with "-" written as "~".
+            order() { tr - '~' | sort -V | tr '~' -; }
+            latest=$(git tag -l 'v*' | sed 's/^v//' | order | tail -n 1)
+            if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$version" | order | tail -n 1)" != "$version" ]; then
+              echo "::error::Version $version is not newer than the latest tag v$latest."
               exit 1
             fi
           fi
