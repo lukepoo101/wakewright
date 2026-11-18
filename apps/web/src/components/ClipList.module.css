@@ -1,5 +1,9 @@
 /* The layout follows the width the list gets, not the window's, because
-   the list also sits in a column on Home. */
+   the list also sits in a column on Home. Device names get the room first:
+   a row takes one, two or three lines rather than cut a name short, and a
+   name is truncated only when even its own line is too narrow. Then the
+   full name is in the tooltip, shown when the row has focus, and always
+   read out by screen readers (the ellipsis is only visual). */
 .container {
   container-type: inline-size;
 }
@@ -10,30 +14,11 @@
   padding: 0;
 }
 
-/* Wide: one line per clip. The rows share the list's columns (subgrid), so
-   every column is as wide as its widest cell and nothing overlaps; only the
-   device name gives way, with an ellipsis. */
-@container (width >= 44rem) {
-  .list {
-    display: grid;
-    grid-template-columns:
-      [play] auto [time] max-content [device] minmax(4rem, 1fr)
-      [kind] max-content [score] max-content [flags] max-content;
-    column-gap: var(--space-4);
-  }
-
-  .row {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: subgrid;
-    grid-template-areas: "play time device kind score flags";
-    align-items: center;
-  }
-}
-
 .row {
   position: relative;
-  padding: var(--space-2) var(--space-3);
+  display: grid;
+  align-items: center;
+  padding: var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -94,6 +79,11 @@
   white-space: nowrap;
 }
 
+.row:focus-within .device {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .removed {
   color: var(--color-text-muted);
 }
@@ -106,27 +96,52 @@
   grid-area: score;
 }
 
+.engine {
+  grid-area: engine;
+}
+
 .flags {
   grid-area: flags;
 }
 
-/* Narrow: two lines per clip; a clipped clip shows the badge's icon only,
-   beside the score (its name stays for screen readers and in the tooltip). */
-@container (width < 44rem) {
+/* Score, engine and badge: separate grid cells on wider layouts, one line
+   of their own on a phone. */
+.measure {
+  display: contents;
+}
+
+/* Narrow (a phone): three lines. The time and kind; the device name with
+   the whole width to itself; then the score, its engine and the clipped
+   badge's icon (its name stays for screen readers and in the tooltip). */
+@container (width < 36rem) {
   .row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "play time time kind"
-      "play device flags score";
-    align-items: center;
+      "play time kind"
+      "play device device"
+      "play measure measure";
     gap: var(--space-1) var(--space-3);
-    padding: var(--space-3) var(--space-2);
   }
 
   .device {
     color: var(--color-text-muted);
     font-size: var(--text-small);
+  }
+
+  .kind {
+    justify-self: end;
+  }
+
+  .measure {
+    grid-area: measure;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .flags {
+    margin-left: auto;
   }
 
   .clippedLabel {
@@ -137,9 +152,43 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
+}
 
-  .kind,
-  .score {
+/* Medium (Home's column on a desktop): two lines, the device name on the
+   second with the engine and any badge. */
+@container (36rem <= width < 60rem) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "play time kind score"
+      "play device engine flags";
+    gap: var(--space-1) var(--space-4);
+  }
+
+  .device {
+    color: var(--color-text-muted);
+  }
+
+  .flags {
     justify-self: end;
+  }
+}
+
+/* Wide: one line per clip. The rows share the list's columns (subgrid), so
+   every column is as wide as its widest cell and nothing overlaps. */
+@container (width >= 60rem) {
+  .list {
+    display: grid;
+    grid-template-columns:
+      [play] auto [time] max-content [device] minmax(8rem, 1fr)
+      [kind] max-content [score] max-content [engine] max-content [flags] max-content;
+    column-gap: var(--space-4);
+  }
+
+  .row {
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    grid-template-areas: "play time device kind score engine flags";
+    padding: var(--space-2) var(--space-3);
   }
 }

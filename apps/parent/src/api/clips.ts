@@ -6,6 +6,7 @@ import { isClipped } from "../clipping-rule.ts";
 import {
   type ClipFilter,
   type ClipListRow,
+  clipEngines,
   clipNeighbours,
   clipSummary,
   getClip,
@@ -70,6 +71,7 @@ const Clip = z
 const Filter = z.object({
   device: z.string().optional(),
   kind: Kind.optional(),
+  engine: z.string().max(64).optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
 });
@@ -121,6 +123,18 @@ const routes = {
             }),
           },
         },
+      },
+    },
+  }),
+  engines: createRoute({
+    method: "get",
+    path: "/clips/engines",
+    tags: ["clips"],
+    summary: "Every wake word engine among the stored clips, for the engine filter",
+    responses: {
+      200: {
+        description: "Engines",
+        content: { "application/json": { schema: z.object({ engines: z.array(z.string()) }) } },
       },
     },
   }),
@@ -190,6 +204,7 @@ export function clipRoutes(
       const since = new Date(Date.now() - 86_400_000).toISOString();
       return c.json(clipSummary(db, since), 200);
     })
+    .openapi(routes.engines, (c) => c.json({ engines: clipEngines(db) }, 200))
     .openapi(routes.get, (c) => {
       const row = getClip(db, c.req.valid("param").id);
       if (!row) return c.json(notFound, 404);
@@ -238,7 +253,7 @@ export function clipRoutes(
 }
 
 function toFilter(q: z.infer<typeof Filter>): ClipFilter {
-  return { deviceId: q.device, reason: q.kind, from: iso(q.from), to: iso(q.to) };
+  return { deviceId: q.device, reason: q.kind, engine: q.engine, from: iso(q.from), to: iso(q.to) };
 }
 
 // Stored times are UTC with a Z; normalise offsets so text comparison holds.

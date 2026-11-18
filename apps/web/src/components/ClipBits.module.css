@@ -72,13 +72,21 @@
   background: var(--color-accent);
 }
 
+/* The threshold, always half way: the bar runs to twice the threshold. */
 .marker {
   position: absolute;
   top: -0.25rem;
   bottom: -0.25rem;
+  left: 50%;
   width: 2px;
   margin-left: -1px;
   background: var(--color-text);
+}
+
+.engine {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
 }
 
 .numbers {

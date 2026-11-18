@@ -11,6 +11,7 @@ export type Clip = InferResponseType<(typeof v1.clips)[":id"]["$get"], 200>["cli
 export interface ClipSearch {
   device?: string;
   kind?: "fired" | "near_miss";
+  engine?: string;
   from?: string;
   to?: string;
   page?: number;
@@ -24,6 +25,7 @@ export function parseClipSearch(raw: Record<string, unknown>): ClipSearch {
   return {
     device: typeof raw.device === "string" && raw.device ? raw.device : undefined,
     kind: raw.kind === "fired" || raw.kind === "near_miss" ? raw.kind : undefined,
+    engine: typeof raw.engine === "string" && raw.engine ? raw.engine : undefined,
     from: date(raw.from),
     to: date(raw.to),
     page: Number.isInteger(page) && page > 1 ? page : undefined,
@@ -42,6 +44,7 @@ export function apiFilter(search: ClipSearch) {
   return {
     ...(search.device ? { device: search.device } : {}),
     ...(search.kind ? { kind: search.kind } : {}),
+    ...(search.engine ? { engine: search.engine } : {}),
     ...(search.from ? { from: day(search.from) } : {}),
     ...(search.to ? { to: day(search.to, 1) } : {}),
   };
@@ -77,6 +80,15 @@ export function useClipSummary() {
     queryKey: ["clips", "summary"],
     queryFn: () => call(v1.clips.summary.$get()),
     refetchInterval: 15_000,
+  });
+}
+
+/** Every engine among the stored clips, for the engine filter. */
+export function useClipEngines() {
+  return useQuery({
+    queryKey: ["clips", "engines"],
+    queryFn: () => call(v1.clips.engines.$get()),
+    refetchInterval: 60_000,
   });
 }
 

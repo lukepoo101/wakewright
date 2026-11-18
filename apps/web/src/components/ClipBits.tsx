@@ -6,7 +6,7 @@ import styles from "./ClipBits.module.css";
 import { Icon } from "./Icon.tsx";
 
 // Small pieces every clip view shares: the kind chip, the clipped chip, the
-// score bar and the play button.
+// engine, the score bar and the play button.
 
 export function KindChip({ kind }: { kind: Clip["kind"] }) {
   return (
@@ -47,9 +47,15 @@ export function clippingText(clip: Clip): string {
   return run === 1 ? `${count}, none next to each other` : `${count}, up to ${run} in a row`;
 }
 
+/** The engine that scored the clip: scores of different engines use different scales. */
+export function EngineName({ engine, className = "" }: { engine: string; className?: string }) {
+  return <span className={`${styles.engine} ${className}`}>{engine}</span>;
+}
+
 /**
- * The score against the threshold: a bar with a marker, and the numbers.
- * Scales differ by engine; see score.ts.
+ * The score against the clip's own threshold: a bar with the threshold
+ * marked in the middle, and the numbers on the engine's own scale. See
+ * score.ts.
  */
 export function ScoreBar({ score, threshold }: { score: number | null; threshold: number | null }) {
   if (score === null) return <span className={styles.muted}>no score</span>;
@@ -64,9 +70,7 @@ export function ScoreBar({ score, threshold }: { score: number | null; threshold
             className={`${styles.fill} ${over ? styles.over : ""}`}
             style={{ width: `${bar.fill * 100}%` }}
           />
-          {bar.marker !== null && (
-            <span className={styles.marker} style={{ left: `${bar.marker * 100}%` }} />
-          )}
+          <span className={styles.marker} />
         </span>
       )}
       <span className={styles.numbers}>

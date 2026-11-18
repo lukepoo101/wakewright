@@ -1,7 +1,8 @@
 // Scores as the devices report them. Each engine has its own scale:
 // microWakeWord and openWakeWord report a probability (0 to 1), vsWakeWord
 // a match score with thresholds around 10 and scores that can pass 20. So
-// nothing here assumes a maximum; scores are read against the threshold.
+// nothing here assumes a maximum; scores are read against the clip's own
+// threshold, and the engine is shown beside every score.
 
 /**
  * Score and threshold as text, with the same number of decimals for both:
@@ -24,23 +25,16 @@ export function scoreNumbers(
 }
 
 /**
- * Where the score bar's fill ends and its threshold marker sits, as
- * fractions of the bar. A probability (score and threshold both within
- * 0–1) is drawn on 0–1. On any other scale the bar runs from 0 to twice the
- * threshold, so the marker sits in the middle and a score more than double
- * the threshold fills it. Null when there is no scale to draw on (a score
- * above 1 with no threshold).
+ * Where the score bar's fill ends, as a fraction of the bar. Engines score
+ * on different scales, so the bar always shows the score against the
+ * clip's own threshold: it runs from 0 to twice the threshold, the
+ * threshold marker sits in the middle, and a score of twice the threshold
+ * or more fills it. Bars of different engines compare fairly. Null when
+ * there is no threshold to read the score against.
  */
-export function scoreBar(
-  score: number,
-  threshold: number | null,
-): { fill: number; marker: number | null } | null {
-  const clamp = (x: number) => Math.max(0, Math.min(1, x));
-  if (threshold !== null && threshold > 0 && (threshold > 1 || score > 1)) {
-    return { fill: clamp(score / (2 * threshold)), marker: 0.5 };
-  }
-  if (threshold === null && score > 1) return null;
-  return { fill: clamp(score), marker: threshold === null ? null : clamp(threshold) };
+export function scoreBar(score: number, threshold: number | null): { fill: number } | null {
+  if (threshold === null || threshold <= 0) return null;
+  return { fill: Math.max(0, Math.min(1, score / (2 * threshold))) };
 }
 
 /** One sentence on how the score compares with the threshold. */

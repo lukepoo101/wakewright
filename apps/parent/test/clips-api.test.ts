@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createFakeKiosk } from "@wakewright/fake-kiosk";
+import { createFakeKiosk, type FakeKioskOptions } from "@wakewright/fake-kiosk";
 import { parseRange } from "../src/api/clips.ts";
 import { checkClipWav } from "../src/wav.ts";
 import { testApi } from "./helpers.ts";
@@ -7,8 +7,8 @@ import { testApi } from "./helpers.ts";
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 
 // Two devices with six clips each (four fired, two near misses), collected.
-async function collected() {
-  const kitchen = createFakeKiosk({ name: "kitchen", now: () => NOW });
+async function collected(kitchenOptions: FakeKioskOptions = {}) {
+  const kitchen = createFakeKiosk({ name: "kitchen", now: () => NOW, ...kitchenOptions });
   const lounge = createFakeKiosk({ name: "lounge", now: () => NOW + 30_000, seed: 2 });
   const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : input);
@@ -70,6 +70,22 @@ describe("clips API", () => {
     expect(recent.clips.every((c: { capturedAt: string }) => c.capturedAt >= from)).toBe(true);
     expect(recent.total).toBeLessThan(12);
     expect((await t.request("/api/v1/clips?kind=other")).status).toBe(400);
+  });
+
+  test("filters by engine, and lists the engines there are", async () => {
+    // The kitchen handed over two older clips its earlier engine recorded.
+    const t = await collected({ history: { engine: "microWakeWord", count: 2, daysAgo: 9 } });
+    expect(await (await t.request("/api/v1/clips/engines")).json()).toEqual({
+      engines: ["microWakeWord", "vsWakeWord"],
+    });
+    const micro = await (await t.request("/api/v1/clips?engine=microWakeWord")).json();
+    expect(micro.total).toBe(2);
+    expect(micro.clips).toEqual([
+      expect.objectContaining({ engine: "microWakeWord", sensitivity: null }),
+      expect.objectContaining({ engine: "microWakeWord", sensitivity: null }),
+    ]);
+    const vs = await (await t.request("/api/v1/clips?engine=vsWakeWord&pageSize=100")).json();
+    expect(vs.total).toBe(12);
   });
 
   test("flags a clip as clipped only for a run of full-scale samples", async () => {
