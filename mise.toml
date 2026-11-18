@@ -45,3 +45,7 @@ run = [
 [tasks.e2e]
 description = "Playwright smoke test: builds and starts dist/, or tests E2E_BASE_URL"
 run = "bunx --bun playwright test"
+
+[tasks.release]
+description = "Open the release pull request: mise run release <version> [--dry-run]"
+run = "bun scripts/release.ts"

@@ -1,7 +1,8 @@
 name: Dependency health
 
-# Daily audit of what main already depends on. New advisories against
-# existing dependencies land here, in one issue, instead of failing every
+# Daily audit of what main already depends on and of the published image.
+# New advisories against existing dependencies land here, in one issue,
+# instead of failing every
 # open pull request (pull requests are gated only on what they add, by the
 # dependency review job in ci.yml). Renovate raises the fix as a pull
 # request; this issue closes itself on the first clean run.
@@ -29,6 +30,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      packages: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,15 +58,41 @@ jobs:
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/bun-audit.txt"
 
+      # The newest stable release, or `edge` until there is one: what users
+      # run. Counted as findings: fixable vulnerabilities of high or
+      # critical severity (the same bar a release must pass).
+      - name: Pick the image to scan
+        id: image
+        run: |
+          image="ghcr.io/$GITHUB_REPOSITORY:latest"
+          docker manifest inspect "$image" > /dev/null 2>&1 || image="ghcr.io/$GITHUB_REPOSITORY:edge"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the image
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ steps.image.outputs.ref }}
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: false
+          output-format: json
+          output-file: ${{ runner.temp }}/image-scan.json
+
       - name: Open, update or close the health issue
         env:
           GH_TOKEN: ${{ github.token }}
           BUN_AUDIT_EXIT: ${{ steps.bun-audit.outputs.exit }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           number=$(gh issue list --state open --label dependencies --json number,title \
             --jq "map(select(.title == \"$ISSUE_TITLE\"))[0].number // empty")
-          if [ "$BUN_AUDIT_EXIT" = 0 ]; then
+          image_findings=$(jq '.matches | length' "$RUNNER_TEMP/image-scan.json")
+          jq -r '.matches[] | "\(.artifact.name) \(.artifact.version): \(.vulnerability.id) (\(.vulnerability.severity)), fixed in \(.vulnerability.fix.versions | join(", "))"' \
+            "$RUNNER_TEMP/image-scan.json" > "$RUNNER_TEMP/image-scan.txt"
+          echo "image_findings=$image_findings" >> "$GITHUB_ENV"
+          if [ "$BUN_AUDIT_EXIT" = 0 ] && [ "$image_findings" = 0 ]; then
             if [ -n "$number" ]; then
               gh issue close "$number" --comment "Clean again in $RUN_URL."
             fi
@@ -83,6 +111,14 @@ jobs:
             echo '```text'
             cat "$RUNNER_TEMP/bun-audit.txt"
             echo '```'
+            echo
+            echo "## Image: \`$IMAGE_REF\`"
+            echo
+            echo "Fixable vulnerabilities of high or critical severity:"
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/image-scan.txt"
+            echo '```'
           } > "$RUNNER_TEMP/body.md"
           if [ -n "$number" ]; then
             gh issue edit "$number" --body-file "$RUNNER_TEMP/body.md"
@@ -95,7 +131,7 @@ jobs:
         env:
           BUN_AUDIT_EXIT: ${{ steps.bun-audit.outputs.exit }}
         run: |
-          if [ "$BUN_AUDIT_EXIT" != 0 ]; then
-            echo "::error::bun audit found advisories; see the health issue."
+          if [ "$BUN_AUDIT_EXIT" != 0 ] || [ "$image_findings" != 0 ]; then
+            echo "::error::Advisories found; see the dependency health issue."
             exit 1
           fi
