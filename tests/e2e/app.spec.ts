@@ -221,7 +221,13 @@ test("a judge added on the Judges page judges clips; a new weight changes outcom
 
     await page.getByRole("button", { name: "Add judge" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel(/OpenAI-compatible transcription/).check();
+    // The type is a drop-down; the chosen type says what it is below it.
+    const typeSelect = dialog.getByLabel("Type", { exact: true });
+    await expect(typeSelect.locator("optgroup")).toHaveCount(2);
+    await typeSelect.selectOption({
+      label: "OpenAI-compatible transcription (fake) (third party)",
+    });
+    await expect(dialog.getByText("Sends clips to a third party", { exact: true })).toBeVisible();
     await expect(dialog.getByText("This judge sends clips to a third party")).toBeVisible();
     await dialog.getByLabel("Name").fill("Cloud");
     await dialog.getByLabel(/^API base URL/).fill("https://stt.example.test/v1");
