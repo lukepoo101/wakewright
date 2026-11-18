@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { insert, previousTag, pythonVersion, section, setPythonVersion } from "./release.ts";
+import {
+  insert,
+  PINNED_EXAMPLES,
+  pinImages,
+  previousTag,
+  pythonVersion,
+  section,
+  setPythonVersion,
+} from "./release.ts";
 
 const tags = ["v0.0.0", "v0.0.1-rc.1", "v0.0.1-rc.2", "v0.0.1", "v0.1.0-rc.1"];
 
@@ -53,4 +61,23 @@ test("the worker's version is the product version in PEP 440 spelling", () => {
     '[project]\nname = "w"\nversion = "0.1.0rc2"\n\n[tool.x]\nversion = "9"\n',
   );
   expect(() => setPythonVersion("[project]\n", "0.1.0")).toThrow("no version line");
+});
+
+test("a stable release points the install examples at itself", () => {
+  const text =
+    "image: ghcr.io/lukepoo101/wakewright:0.0.3\n" +
+    "image: ghcr.io/lukepoo101/wakewright-worker:edge\n" +
+    "`edge` is for testing; `ghcr.io/lukepoo101/wakewright` is the parent.\n";
+  expect(pinImages(text, "0.1.0")).toBe(
+    "image: ghcr.io/lukepoo101/wakewright:0.1.0\n" +
+      "image: ghcr.io/lukepoo101/wakewright-worker:0.1.0\n" +
+      "`edge` is for testing; `ghcr.io/lukepoo101/wakewright` is the parent.\n",
+  );
+});
+
+test("every pinned example names an image", async () => {
+  for (const file of PINNED_EXAMPLES) {
+    const text = await Bun.file(new URL(`../${file}`, import.meta.url)).text();
+    expect(pinImages(text, "9.9.9")).toContain(":9.9.9");
+  }
 });

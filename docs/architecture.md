@@ -13,8 +13,9 @@ Wakewright has two kinds of process:
 The planned design, from the workers' pull protocol to training and
 offline evaluation, is in [design/](design/).
 
-v0.0.1 is the parent only: add Kiosk Satellite devices, collect their wake
-word clips, store them, and browse and play them.
+Built so far: the parent adds Kiosk Satellite devices, collects their wake
+word clips, stores them and lets you browse and play them; the worker
+judges each clip, and the parent shows where the judges disagree.
 
 ## The parent
 

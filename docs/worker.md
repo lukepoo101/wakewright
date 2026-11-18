@@ -35,8 +35,7 @@ restart it. Home then says judging is set up and waits for a worker.
 ## With Docker
 
 The image is `ghcr.io/lukepoo101/wakewright-worker`, for amd64 and arm64,
-with the same tags as the parent's image (`edge` until a release includes
-the worker). Use the same release for both.
+with the same tags as the parent's image. Use the same release for both.
 
 ```sh
 docker volume create wakewright-worker-cache
