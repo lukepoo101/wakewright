@@ -1,3 +1,10 @@
+<!--
+Title: a plain-English, imperative summary of the outcome, for example
+"Show the clip's score on the clip page". It becomes the commit and the
+changelog entry. The maintainer adds a label (bug, enhancement, breaking,
+documentation...) that picks the changelog section.
+-->
+
 ## Change
 
 What problem this solves and how it behaves now.

@@ -1,0 +1,4 @@
+# Review requests go to the maintainer. Approval is not required to merge
+# (CI is the reviewer; see docs/project-health.md); this makes sure every
+# outside pull request reaches someone.
+* @lukepoo101

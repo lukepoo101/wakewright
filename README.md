@@ -1,5 +1,10 @@
 # Wakewright
 
+[![CI](https://github.com/lukepoo101/wakewright/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lukepoo101/wakewright/actions/workflows/ci.yml?query=branch%3Amain)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lukepoo101/wakewright/badge)](https://scorecard.dev/viewer/?uri=github.com/lukepoo101/wakewright)
+[![Release](https://img.shields.io/github/v/release/lukepoo101/wakewright?include_prereleases&sort=semver)](https://github.com/lukepoo101/wakewright/releases)
+[![Licence](https://img.shields.io/github/license/lukepoo101/wakewright)](LICENSE)
+
 Wakewright is a self-hosted service that improves wake word detection for
 your voice satellites. It collects the short clips your satellites record
 when a wake word fires (or nearly fires), keeps them on your own hardware,
@@ -12,8 +17,9 @@ changes its settings or installs anything on it.
 
 > **Status: pre-alpha.** Nothing here is usable yet. The repository holds
 > the foundation for v0.0.1: collect Kiosk Satellite clips, store them, and
-> browse and play them in a web UI. There are no releases or published
-> images.
+> browse and play them in a web UI. There is no stable release yet;
+> `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64) is built from
+> every merge to `main`, for testing only.
 
 ## How it fits together
 
@@ -44,8 +50,10 @@ mise run e2e          # Playwright smoke test against the production build
 The fake devices listen on ports 23241 and 23242 with the password `dev`
 and serve synthetic clips (tones and noise, no speech).
 
-More in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[docs/development.md](docs/development.md).
+More in [CONTRIBUTING.md](CONTRIBUTING.md),
+[docs/development.md](docs/development.md) (tooling and CI),
+[docs/RELEASING.md](docs/RELEASING.md) (releases and verifying images) and
+[docs/project-health.md](docs/project-health.md) (what is automated).
 
 ## Privacy
 
