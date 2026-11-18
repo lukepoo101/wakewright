@@ -9,6 +9,16 @@ break things and says how to upgrade.
 
 ## 0.1.0 - 2026-11-18
 
+Clips are now judged. A second image, `ghcr.io/lukepoo101/wakewright-worker`,
+asks openWakeWord, microWakeWord and NVIDIA Parakeet speech to text whether
+each clip contains its wake word, and the parent shows where they disagree
+with each other and with the device: likely false wakes and likely missed
+wake words. To use it, give the parent a worker token
+(`WAKEWRIGHT__WORKER__TOKEN`) and start the worker from the same release
+([docs/worker.md](https://github.com/lukepoo101/wakewright/blob/main/docs/worker.md)); it downloads about 2.5 GB of models on
+first start. Without a worker, the parent works as before. Upgrading needs
+no other change; the database migrates on start.
+
 ### Security
 
 - Install Debian security updates in the worker image by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/34
@@ -21,7 +31,6 @@ break things and says how to upgrade.
 ### Fixes
 
 - Keep the clip filters on one line, the judges' verdict beside the score on a phone and the judging summary first on Home by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/31
-- Tag the two images only once both have passed the scan by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/35
 - Give the date filters their full width and move Clear filters next to the clip count by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/37
 
 ### Documentation
@@ -32,6 +41,7 @@ break things and says how to upgrade.
 
 - Publish the parent image again: keep its digests apart from the worker's by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/29
 - Run the parent's image job without waiting for the path filter by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/32
+- Tag the two images only once both have passed the scan by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/35
 - Retry reading a new image index back from the registry when publishing by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/36
 
 **Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.3...v0.1.0
