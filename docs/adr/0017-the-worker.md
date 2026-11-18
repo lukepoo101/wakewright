@@ -101,8 +101,9 @@ pymicro-features) is published for both.
 ### CI and releases
 
 - **Path filters** (amending ADR 0009, which had none): a `Changes` job
-  lists the pull request's files. The Bun jobs (check, image + E2E) run
-  unless every file is worker-only; the worker jobs (check, image on both
+  lists the pull request's files. The Bun check runs unless every file is
+  worker-only (the parent's image + E2E job, the slowest, runs on every
+  change, since waiting for `Changes` lengthened every parent pull request); the worker jobs (check, image on both
   architectures) run when the worker, its Dockerfile, the protocol file,
   `mise.toml` or the workflows change. Repository-wide checks (versions,
   actionlint, zizmor, hadolint, Renovate) and the parent + worker

@@ -158,7 +158,7 @@ every push to `main`:
 | `Check / Bun`                                 | Bun side changed | `bun install`, `mise run check:bun`                                                                                                                                  |
 | `Check / worker`                              | worker changed   | `uv sync --frozen` (uv cache), `mise run check:worker`                                                                                                               |
 | `Integration / parent + worker`               | either changed   | `mise run integration`: the parent from source and the worker loop with fake judges                                                                                  |
-| `Image / build + E2E (amd64, arm64)`          | Bun side changed | builds the parent image (not pushed), checks it holds no Python or native addons, runs it read-only, waits for its health check, then runs `mise run e2e` against it |
+| `Image / build + E2E (amd64, arm64)`          | always           | builds the parent image (not pushed), checks it holds no Python or native addons, runs it read-only, waits for its health check, then runs `mise run e2e` against it |
 | `Worker image / build + smoke (amd64, arm64)` | worker changed   | builds the worker image, checks it holds no model and its native libraries load, starts it against an absent parent and stops it with SIGTERM                        |
 | `Dependencies / review`                       | pull requests    | fails if the pull request adds a dependency with a known advisory of moderate severity or worse                                                                      |
 | `CI OK`                                       | always           | passes only if every job above passed or was skipped by its own condition; the one check required on `main`                                                          |
@@ -166,7 +166,9 @@ every push to `main`:
 "Worker changed" means a file under `apps/worker/`, the worker Dockerfile,
 `docs/api/worker-v1.openapi.json`, `devtools/worker-integration.ts`,
 `mise.toml` or `ci.yml`/`publish.yml`; "Bun side changed" means any file
-that is not worker-only. Pushes to `main` run every job.
+that is not worker-only. Pushes to `main` run every job. The parent's
+image job, the slowest, runs on every change: gating it on `Changes` added
+about 13 s to every pull request that touches the parent.
 `worker-models.yml` runs the real models (weekly, by hand, and on pull
 requests that change a judge or the pins; not required).
 
