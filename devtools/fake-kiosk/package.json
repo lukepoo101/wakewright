@@ -1,6 +1,6 @@
 {
   "name": "@wakewright/fake-kiosk",
-  "version": "0.0.0",
+  "version": "0.0.1-rc.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
