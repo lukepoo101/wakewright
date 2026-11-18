@@ -2,7 +2,7 @@
 name = "wakewright-worker"
 # The product version: apps/parent/package.json. `mise run release` sets both;
 # scripts/check-versions.ts fails when they differ.
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Wakewright worker: judges wake word clips for the Wakewright parent"
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"

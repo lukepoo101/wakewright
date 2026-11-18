@@ -7,7 +7,11 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
-## 0.1.0-rc.1 - 2026-11-18
+## 0.1.0 - 2026-11-18
+
+### Security
+
+- Install Debian security updates in the worker image by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/34
 
 ### New features
 
@@ -17,6 +21,8 @@ break things and says how to upgrade.
 ### Fixes
 
 - Keep the clip filters on one line, the judges' verdict beside the score on a phone and the judging summary first on Home by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/31
+- Tag the two images only once both have passed the scan by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/35
+- Give the date filters their full width and move Clear filters next to the clip count by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/37
 
 ### Documentation
 
@@ -26,8 +32,9 @@ break things and says how to upgrade.
 
 - Publish the parent image again: keep its digests apart from the worker's by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/29
 - Run the parent's image job without waiting for the path filter by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/32
+- Retry reading a new image index back from the registry when publishing by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/36
 
-**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.3...v0.1.0-rc.1
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.0.3...v0.1.0
 
 ## 0.0.3 - 2026-11-18
 
