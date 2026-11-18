@@ -21,7 +21,7 @@ env:
 
 jobs:
   meta:
-    name: Publish / version
+    name: version
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -64,7 +64,7 @@ jobs:
           echo "Version $version, release: $release, pre-release: $prerelease" >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: Publish / build (${{ matrix.arch }})
+    name: build (${{ matrix.arch }})
     needs: meta
     strategy:
       fail-fast: true
@@ -137,7 +137,7 @@ jobs:
           if-no-files-found: error
 
   image:
-    name: Publish / image
+    name: image
     needs: [meta, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -205,6 +205,9 @@ jobs:
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: ${{ env.IMAGE }}@${{ steps.index.outputs.digest }}
+          # Restores Grype's vulnerability database from the Actions cache
+          # instead of downloading it every run (most of the scan's time).
+          cache-db: true
           only-fixed: true
           severity-cutoff: high
           fail-build: ${{ needs.meta.outputs.release }}
@@ -242,7 +245,7 @@ jobs:
           printf 'Tags: %s\n' "${tags[*]}" | sed 's/-t //g' >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    name: Publish / GitHub release
+    name: GitHub release
     needs: [meta, image]
     if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-24.04
