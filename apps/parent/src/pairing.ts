@@ -21,7 +21,7 @@ export interface Pairing {
 }
 
 export function encodePairing(pairing: Pairing): string {
-  const json = JSON.stringify({ url: pairing.url.replace(/\/+$/, ""), token: pairing.token });
+  const json = JSON.stringify({ url: trimSlashes(pairing.url), token: pairing.token });
   const b64 = new TextEncoder().encode(json).toBase64({ alphabet: "base64url", omitPadding: true });
   return `${PAIRING_PREFIX}${PAIRING_VERSION}:${b64}`;
 }
@@ -54,5 +54,12 @@ export function decodePairing(text: string): Pairing {
   if (typeof token !== "string" || token.length === 0) {
     throw new Error("the pairing string has no token");
   }
-  return { url: url.replace(/\/+$/, ""), token };
+  return { url: trimSlashes(url), token };
+}
+
+// Without a regular expression, which would be slow on many slashes.
+function trimSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end--;
+  return url.slice(0, end);
 }
