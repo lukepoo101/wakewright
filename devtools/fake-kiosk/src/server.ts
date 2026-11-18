@@ -7,6 +7,8 @@ import {
   LoginRequest,
   type LoginResponse,
   type SettingEntry,
+  SettingsPatchRequest,
+  type SettingsPatchResponse,
   type SettingsResponse,
   WakeSettingKeys,
 } from "@wakewright/parent/kiosk/shapes";
@@ -23,7 +25,12 @@ import { encodeWav, levels, type Signal, synthesize } from "./synth.ts";
 // - Wake word diagnostics keep the last 10 activations and the last 10 near
 //   misses, newest first; older entries roll off. With diagnostics off the
 //   lists are empty.
-// - Any other /api call, every write included, fails.
+// - `PATCH /api/settings` changes the wake word engine, sensitivity and
+//   fine-tune, checked as the device checks them (an option it offers, a
+//   number in range), answering the keys it refused; later clips follow
+//   the new settings and `GET /api/settings` reports them. Any other key
+//   is refused, and every write is recorded in `writes`.
+// - Any other /api call fails.
 //
 // Tests and `mise run dev` drive it through `hear()` and `faults`, or over
 // HTTP under /_fake/ (outside the device's API): hear a clip, change the
@@ -60,6 +67,11 @@ export interface FakeKioskOptions {
    * `engine`, the newest `daysAgo` days old, an hour apart.
    */
   history?: { engine: Engine; count: number; daysAgo: number };
+  /** A Kiosk Satellite fleet: this device leads one, or follows the named leader. */
+  fleet?: { leader: true } | { follows: string };
+  /** Starting sensitivity and fine-tune. Default moderately and 0. */
+  sensitivity?: FakeSettings["sensitivity"];
+  fineTune?: number;
 }
 
 /** The settings a fake device reports; change them with `setSettings`. */
@@ -74,9 +86,23 @@ export interface FakeSettings {
  * Engines report scores on their own scales: vsWakeWord a match score
  * against a threshold around 10, microWakeWord a probability (0–1).
  */
-export type Engine = "vsWakeWord" | "microWakeWord";
-const THRESHOLDS: Record<Engine, number> = { vsWakeWord: 10.5, microWakeWord: 0.6 };
-const WAKE_WORDS: Record<Engine, string> = { vsWakeWord: "alexa", microWakeWord: "okay_nabu" };
+export type Engine = "vsWakeWord" | "microWakeWord" | "openWakeWord";
+const THRESHOLDS: Record<Engine, number> = {
+  vsWakeWord: 10.5,
+  microWakeWord: 0.6,
+  openWakeWord: 0.5,
+};
+const WAKE_WORDS: Record<Engine, string> = {
+  vsWakeWord: "alexa",
+  microWakeWord: "okay_nabu",
+  openWakeWord: "alexa",
+};
+const ENGINE_VALUES: Record<string, Engine> = {
+  vswakeword: "vsWakeWord",
+  microwakeword: "microWakeWord",
+  openwakeword: "openWakeWord",
+};
+const SENSITIVITIES = ["slightly", "moderately", "very"] as const;
 
 /** Faults to inject; change them at any time. */
 export interface Faults {
@@ -90,6 +116,10 @@ export interface Faults {
   badAudio: Set<string>;
   /** In-process fetch: the next N audio downloads break mid-way. */
   dropAudio: number;
+  /** Every /api call answers 503, as a device whose app has stopped answering. */
+  down: boolean;
+  /** Settings keys `PATCH /api/settings` refuses, as the device refuses a bad value. */
+  rejectKeys: Set<string>;
 }
 
 interface Clip {
@@ -111,6 +141,10 @@ export interface FakeKiosk {
   setSettings(change: Partial<FakeSettings>): void;
   /** Requests received, for asserting what the client called. */
   readonly calls: string[];
+  /** Every `PATCH /api/settings` body received, in order. */
+  readonly writes: Record<string, unknown>[];
+  /** The settings now. */
+  readonly settings: Readonly<FakeSettings>;
 }
 
 export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
@@ -126,7 +160,10 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     malformedList: false,
     badAudio: new Set(),
     dropAudio: 0,
+    down: false,
+    rejectKeys: new Set(),
   };
+  const writes: Record<string, unknown>[] = [];
   let diagnostics = options.diagnostics ?? true;
   let loginFailures = 0;
   let lockedUntil = 0;
@@ -139,11 +176,14 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   const current: FakeSettings = {
     engine,
     wakeWords: options.wakeWords ?? [WAKE_WORDS[engine]],
-    sensitivity: "moderately",
-    fineTune: 0,
+    sensitivity: options.sensitivity ?? "moderately",
+    fineTune: options.fineTune ?? 0,
   };
 
   function makeClip(at: number, nearMiss: boolean, engine = current.engine): Clip {
+    // Clips heard now are of the wake word the device listens for.
+    const wakeWord =
+      engine === current.engine ? (current.wakeWords[0] ?? WAKE_WORDS[engine]) : WAKE_WORDS[engine];
     counter++;
     const id = Math.max(at, lastId + 1);
     lastId = id;
@@ -161,7 +201,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     // a probability by up to the scale's top (1), a vsWakeWord score by up
     // to 60%, and every fifth clip is a strong match at over twice the
     // threshold, as a close, clear voice gives.
-    const top = engine === "microWakeWord" ? 1 : threshold * (counter % 5 === 0 ? 2.4 : 1.6);
+    const top = engine !== "vsWakeWord" ? 1 : threshold * (counter % 5 === 0 ? 2.4 : 1.6);
     const score = nearMiss
       ? round(threshold * (0.75 + 0.2 * fraction(counter)))
       : round(threshold + (top - threshold) * (counter % 5 === 0 ? 0.9 : fraction(counter * 3)));
@@ -169,7 +209,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
       id: String(id),
       ...(nearMiss ? { nearMiss: true } : {}),
       at: new Date(id).toISOString(),
-      wakeWord: WAKE_WORDS[engine],
+      wakeWord,
       engine,
       score,
       threshold,
@@ -203,6 +243,7 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   app.use("/api/*", async (c, next) => {
     calls.push(`${c.req.method} ${c.req.path}`);
     if (faults.slowMs > 0) await Bun.sleep(faults.slowMs);
+    if (faults.down) return c.json({ error: "the fake device is down" }, 503);
     await next();
   });
 
@@ -226,8 +267,8 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     const health: Health = {
       name,
       appVersion: "2026.11.23-fake",
-      leader: false,
-      follows: null,
+      leader: options.fleet !== undefined && "leader" in options.fleet,
+      follows: options.fleet && "follows" in options.fleet ? options.fleet.follows : null,
       uptime: { app: uptime, device: uptime },
     };
     c.header("Access-Control-Allow-Origin", "*");
@@ -245,6 +286,24 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
   app.get("/api/settings", (c) =>
     c.json(settings(diagnostics, current) satisfies SettingsResponse),
   );
+
+  // Checked key by key, as the device does: an accepted key is applied even
+  // when another in the same body is refused.
+  app.patch("/api/settings", async (c) => {
+    const body = SettingsPatchRequest.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "invalid JSON" }, 400);
+    writes.push({ ...body.data });
+    const rejected: string[] = [];
+    const errors: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body.data)) {
+      const problem = faults.rejectKeys.has(key) ? "refused by the fake" : apply(key, value);
+      if (problem !== null) {
+        rejected.push(key);
+        errors[key] = problem;
+      }
+    }
+    return c.json({ ok: rejected.length === 0, rejected, errors } satisfies SettingsPatchResponse);
+  });
 
   app.post("/api/commands/getWakeWordActivations", (c) => {
     if (faults.malformedList) return c.json({ ok: true, data: { activations: "nope" } });
@@ -283,13 +342,18 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     expireTokens();
     return c.body(null, 204);
   });
+  app.get("/_fake/settings", (c) => c.json({ ...current, writes }));
   app.put("/_fake/faults", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       slowMs?: number;
       malformedList?: boolean;
       badAudio?: string[];
       diagnostics?: boolean;
+      down?: boolean;
+      rejectKeys?: string[];
     };
+    if (body.down !== undefined) faults.down = body.down;
+    if (body.rejectKeys !== undefined) faults.rejectKeys = new Set(body.rejectKeys);
     if (body.slowMs !== undefined) faults.slowMs = body.slowMs;
     if (body.malformedList !== undefined) faults.malformedList = body.malformedList;
     if (body.badAudio !== undefined) faults.badAudio = new Set(body.badAudio);
@@ -305,6 +369,30 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
 
   function setSettings(change: Partial<FakeSettings>) {
     Object.assign(current, change);
+  }
+
+  // One key of a settings write; the reason it is refused, or null.
+  function apply(key: string, value: unknown): string | null {
+    if (key === WakeSettingKeys.engine) {
+      const engine = typeof value === "string" ? ENGINE_VALUES[value] : undefined;
+      if (!engine) return "not an engine this device offers";
+      current.engine = engine;
+      return null;
+    }
+    if (key === WakeSettingKeys.sensitivity) {
+      const level = SENSITIVITIES.find((s) => s === value);
+      if (!level) return "not one of the options";
+      current.sensitivity = level;
+      return null;
+    }
+    if (key === WakeSettingKeys.fineTune) {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < -10 || value > 10) {
+        return "must be a whole number from -10 to 10";
+      }
+      current.fineTune = value;
+      return null;
+    }
+    return "this fake device changes only the wake word sensitivity settings";
   }
 
   function expireTokens() {
@@ -350,6 +438,8 @@ export function createFakeKiosk(options: FakeKioskOptions = {}): FakeKiosk {
     setDiagnostics,
     setSettings,
     calls,
+    writes,
+    settings: current,
   };
 }
 
@@ -397,6 +487,8 @@ function settings(diagnostics: boolean, current: FakeSettings): SettingsResponse
       type: "number",
       title: "Fine-tune sensitivity",
       value: current.fineTune,
+      min: -10,
+      max: 10,
     },
     { key: "screen.brightness", type: "number", title: "Brightness", value: 80 },
   ];

@@ -134,6 +134,7 @@ export function clipsWithJudging(ctx: OutcomeContext): {
           ELSE 'uncertain' END AS settled
       FROM (
         SELECT c.*, d.name AS device_name, (d.removed_at IS NOT NULL) AS device_removed,
+          cs.note AS session_note, cs.started_at AS session_started_at,
           coalesce(v.yes_n, 0) AS votes_yes, coalesce(v.no_n, 0) AS votes_no,
           coalesce(v.abstain_n, 0) AS votes_abstain, coalesce(v.answered, 0) AS answered,
           coalesce(v.yes_w, 0) AS yes_weight, coalesce(v.no_w, 0) AS no_weight,
@@ -142,6 +143,7 @@ export function clipsWithJudging(ctx: OutcomeContext): {
           EXISTS (SELECT 1 FROM json_each($runnable) r WHERE ${RUNNABLE_MISSING}) AS waiting
         FROM clips c
         JOIN devices d ON d.id = c.device_id
+        LEFT JOIN collection_sessions cs ON cs.id = c.collection_session_id
         LEFT JOIN (${VOTES}) v ON v.clip_id = c.id
       ) x
     ) y
@@ -161,6 +163,9 @@ export function clipsWithJudging(ctx: OutcomeContext): {
 export interface JudgingColumns {
   device_name: string;
   device_removed: number;
+  /** The clip's collection session, if it has one. */
+  session_note: "wake_word" | "not_wake_word" | "mixed" | null;
+  session_started_at: string | null;
   votes_yes: number;
   votes_no: number;
   votes_abstain: number;

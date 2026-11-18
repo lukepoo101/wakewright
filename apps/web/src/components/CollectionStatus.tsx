@@ -4,7 +4,8 @@ import styles from "./CollectionStatus.module.css";
 import { Button } from "./ui.tsx";
 
 // The status strip's collection control: whether clips are being collected,
-// and the pause toggle. Pausing never changes a device; clips the devices
+// and the pause toggle. Pausing changes no device, except that a running
+// collection session ends and puts its settings back; clips the devices
 // save while paused are skipped for good.
 
 export function CollectionStatus() {
@@ -33,7 +34,7 @@ export function CollectionStatus() {
         title={
           paused
             ? "Start collecting clips again"
-            : "Stop collecting. Clips the devices save meanwhile are never stored."
+            : "Stop collecting. Clips the devices save meanwhile are never stored, and a running collection session ends."
         }
       >
         {paused ? "Resume" : "Pause"}

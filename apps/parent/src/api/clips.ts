@@ -144,6 +144,17 @@ const Clip = z
         fineTune: z.number().nullable(),
       })
       .nullable(),
+    /**
+     * The collection session it was recorded in (ADR 0020), with the note
+     * the user gave of what they would be doing. The note never votes.
+     */
+    collectionSession: z
+      .object({
+        id: z.string(),
+        note: z.enum(["wake_word", "not_wake_word", "mixed"]).nullable(),
+        startedAt: z.string().nullable(),
+      })
+      .nullable(),
     judging: ClipJudging,
   })
   .openapi("Clip");
@@ -160,6 +171,9 @@ const Filter = z.object({
   mismatch: Mismatch.optional(),
   dissent: z.enum(["1"]).optional().openapi({
     description: "1: only clips where a counted judge voted against the outcome.",
+  }),
+  session: z.string().max(64).optional().openapi({
+    description: "any: clips from any collection session; otherwise one session's id.",
   }),
 });
 
@@ -420,6 +434,7 @@ function toFilter(q: z.infer<typeof Filter>): ClipFilter {
     outcome: q.outcome,
     mismatch: q.mismatch,
     dissent: q.dissent === "1",
+    session: q.session,
   };
 }
 
@@ -470,6 +485,13 @@ function toClip(row: ClipListRow): z.infer<typeof Clip> {
     deviceId: row.device_id,
     deviceName: row.device_name,
     deviceRemoved: row.device_removed === 1,
+    collectionSession: row.collection_session_id
+      ? {
+          id: row.collection_session_id,
+          note: row.session_note,
+          startedAt: row.session_started_at,
+        }
+      : null,
     capturedAt: row.captured_at,
     ingestedAt: row.ingested_at,
     kind: row.capture_reason,

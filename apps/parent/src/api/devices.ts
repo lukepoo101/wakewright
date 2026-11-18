@@ -11,7 +11,9 @@ import {
 } from "../db/devices.ts";
 import { type Devices, describeError } from "../devices.ts";
 import type { Collector } from "../ingest.ts";
+import { openSessionFor } from "../db/sessions.ts";
 import { KioskConfig, kioskSource } from "../kiosk/source.ts";
+import type { CollectionSessions } from "../sessions.ts";
 import type { ReportedState } from "../source.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
@@ -56,6 +58,14 @@ const Device = z
     reportedAt: z.string().nullable(),
     clips: z.number().int(),
     lastClipAt: z.string().nullable(),
+    /** Its collection session that is not finished yet (ADR 0020). */
+    collectionSession: z
+      .object({
+        id: z.string(),
+        state: z.enum(["starting", "running", "restoring", "needs_attention"]),
+        endsAt: z.string().nullable(),
+      })
+      .nullable(),
   })
   .openapi("Device");
 
@@ -146,7 +156,7 @@ const routes = {
     responses: {
       200: json(Device, "Saved"),
       404: errorContent("No such device"),
-      409: errorContent("A device has this name"),
+      409: errorContent("A device has this name, or its address cannot change during a session"),
       422: errorContent("The connection test failed; nothing was saved"),
     },
   }),
@@ -156,7 +166,11 @@ const routes = {
     tags: ["devices"],
     summary: "Stop collecting from a device and forget its password; its clips stay",
     request: { params: IdParam },
-    responses: { 204: { description: "Removed" }, 404: errorContent("No such device") },
+    responses: {
+      204: { description: "Removed" },
+      404: errorContent("No such device"),
+      409: errorContent("Its collection session has not put its settings back yet"),
+    },
   }),
   test: createRoute({
     method: "post",
@@ -195,11 +209,17 @@ export interface DeviceRoutesDeps {
   db: Database;
   devices: Devices;
   collector: Collector;
+  sessions: CollectionSessions;
   intervalMs: number;
 }
 
 export function deviceRoutes(deps: DeviceRoutesDeps, guard: MiddlewareHandler<ApiEnv>) {
-  const { db, devices, collector } = deps;
+  const { db, devices, collector, sessions } = deps;
+  const toDevice = (d: DeviceWithCounts) => deviceBody(db, d);
+  const inSession = (name: string, what: string) => ({
+    error: "collection_session",
+    message: `${name} has a collection session that has not put its settings back yet. ${what}`,
+  });
   const notFound = { error: "not_found", message: "No such device." } as const;
   const nameTaken = (name: string) => ({
     error: "name_taken",
@@ -255,6 +275,12 @@ export function deviceRoutes(deps: DeviceRoutesDeps, guard: MiddlewareHandler<Ap
       const name = input.name ?? device.name;
       if (deviceNameTaken(db, name, device.id)) return c.json(nameTaken(name), 409);
       const baseUrl = input.baseUrl ?? baseUrlOf(device);
+      if (baseUrl !== baseUrlOf(device) && openSessionFor(db, device.id)) {
+        return c.json(
+          inSession(device.name, "Change its address once the session has ended."),
+          409,
+        );
+      }
       if (input.password !== undefined || baseUrl !== baseUrlOf(device)) {
         const password = input.password ?? (await devices.password(device).catch(() => ""));
         const failed = await mustConnect(baseUrl, password, input.skipTest);
@@ -267,6 +293,11 @@ export function deviceRoutes(deps: DeviceRoutesDeps, guard: MiddlewareHandler<Ap
     .openapi(routes.remove, (c) => {
       const device = getDevice(db, c.req.valid("param").id);
       if (!device) return c.json(notFound, 404);
+      // Removing forgets the password, and with it any way to put the
+      // session's settings back.
+      if (openSessionFor(db, device.id)) {
+        return c.json(inSession(device.name, "Remove it once the session has ended."), 409);
+      }
       devices.remove(device);
       return c.body(null, 204);
     })
@@ -300,6 +331,8 @@ export function deviceRoutes(deps: DeviceRoutesDeps, guard: MiddlewareHandler<Ap
       const at = new Date().toISOString();
       if (c.req.valid("json").paused) {
         startPause(db, { id: Bun.randomUUIDv7(), at, userId: c.var.user?.id ?? null });
+        // A session collects nothing while paused: end it and put its settings back.
+        sessions.endAllForPause();
       } else if (openPause(db)) {
         endPause(db, at);
         collector.wake();
@@ -312,7 +345,8 @@ function baseUrlOf(device: DeviceRow): string {
   return (JSON.parse(device.config_json) as { baseUrl: string }).baseUrl;
 }
 
-function toDevice(d: DeviceWithCounts): z.infer<typeof Device> {
+function deviceBody(db: Database, d: DeviceWithCounts): z.infer<typeof Device> {
+  const session = openSessionFor(db, d.id);
   return {
     id: d.id,
     name: d.name,
@@ -332,5 +366,9 @@ function toDevice(d: DeviceWithCounts): z.infer<typeof Device> {
     reportedAt: d.reported_at,
     clips: d.clips,
     lastClipAt: d.last_clip_at,
+    collectionSession:
+      session && session.state !== "ended"
+        ? { id: session.id, state: session.state, endsAt: session.ends_at }
+        : null,
   };
 }

@@ -21,8 +21,10 @@ things people will do with it.
    sentence has its numbers one tap away.
 2. **Show uncertainty.** Intervals, not bare points; "not enough data yet"
    is a normal state, with what would settle it.
-3. **Nothing changes a device.** Every recommendation ends with the exact
-   steps to apply it by hand and to switch back.
+3. **Nothing changes a device for good.** Every recommendation ends with
+   the exact steps to apply it by hand and to switch back. The one
+   exception, a collection session, is started by the user, time limited,
+   and always puts the settings back and confirms it.
 4. **Undo over confirm.** Confirm only what is hard to reverse, such as
    deleting in bulk.
 5. **Phone for routine, desktop for analysis.** Review, pause and status
@@ -45,7 +47,12 @@ Built:
   device's score against its own threshold and the settings it was
   recorded under.
 - Pause collection at once from the top bar, knowing that nothing
-  recorded while paused is kept and nothing on the device changes.
+  recorded while paused is kept and nothing on the device changes (a
+  running collection session ends and puts its settings back).
+- Start a collection session on one tablet: for a few minutes it wakes on
+  almost anything and every clip is kept, tagged with the session and a
+  note of what the person was doing; then its settings are put back and
+  confirmed, with a banner until they are.
 
 Next (judging):
 

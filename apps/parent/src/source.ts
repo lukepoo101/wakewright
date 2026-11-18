@@ -2,8 +2,10 @@ import type { z } from "zod";
 
 // The Source interface: how the collector talks to one kind of device. The
 // Kiosk Satellite adapter (kiosk/source.ts) is the first implementation;
-// later sources plug in here without the collector changing. A source only
-// ever reads from a device (ADR 0008).
+// later sources plug in here without the collector changing. A source reads
+// from a device (ADR 0008); its one write is a collection session's change
+// of the wake word sensitivity settings, which is always put back
+// (ADR 0020).
 
 /** Why a device call failed; the UI turns each code into advice. */
 export type SourceErrorCode =
@@ -68,11 +70,67 @@ export interface PollResult {
   gapDetected: boolean;
 }
 
+/** One setting a collection session would change, with labels for the UI. */
+export interface SettingChange {
+  key: string;
+  title: string;
+  from: unknown;
+  to: unknown;
+  fromLabel: string;
+  toLabel: string;
+}
+
+/** An engine a collection session could run, and what it would change. */
+export interface CollectionEngine {
+  /** The engine's setting value, e.g. "microwakeword". */
+  value: string;
+  label: string;
+  /** The device runs this engine now. */
+  current: boolean;
+  available: boolean;
+  /** Why it is not available. */
+  reason: string | null;
+  /** The engine a session uses unless the user picks another. */
+  recommended: boolean;
+  changes: SettingChange[];
+}
+
+/** What a collection session could do on a device, read from it now. */
+export interface CollectionOptions {
+  /** False when a session cannot start; `problems` says why. */
+  ready: boolean;
+  problems: string[];
+  current: {
+    engine: string | null;
+    engineLabel: string;
+    sensitivity: string | null;
+    sensitivityLabel: string;
+    fineTune: number | null;
+    wakeWords: string[];
+  };
+  fleet: { role: "leader" | "follower"; leader: string | null } | null;
+  engines: CollectionEngine[];
+  defaultEngine: string | null;
+}
+
+/** How a device answered a settings write. */
+export interface WriteResult {
+  /** Keys the device refused; the others were applied. */
+  rejected: string[];
+  errors: Record<string, string>;
+}
+
 /** A connection to one device. It may cache a login between calls. */
 export interface SourceConnection {
   readState(): Promise<ReportedState>;
   poll(cursor: unknown): Promise<PollResult>;
   fetchAudio(entry: ClipEntry): Promise<Uint8Array>;
+  /** Collection sessions (ADR 0020): what one would change on the device now. */
+  collectionOptions(): Promise<CollectionOptions>;
+  /** The current values of these settings; a key the device lacks is undefined. */
+  readSettings(keys: readonly string[]): Promise<Record<string, unknown>>;
+  /** Writes wake word settings; any other key is refused before anything is sent. */
+  writeSettings(values: Record<string, unknown>): Promise<WriteResult>;
 }
 
 export interface ConnectOptions {

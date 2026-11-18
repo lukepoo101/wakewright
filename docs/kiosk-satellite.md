@@ -1,9 +1,12 @@
 # Kiosk Satellite devices
 
 Wakewright collects from [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite)
-through its remote administration API. It only reads: it logs in, reads the
+through its remote administration API. It reads: it logs in, reads the
 device's health and settings, lists the saved wake word activations and
-fetches their audio. It never changes a setting or installs anything.
+fetches their audio. It never installs anything. The only setting it ever
+changes is the wake word sensitivity, during a
+[collection session](#collection-sessions) you start, and it always puts
+it back.
 
 ## Turn on wake word diagnostics
 
@@ -40,7 +43,66 @@ device card then says "Some clips may have been missed".
 
 **Pause** in the top bar stops collection. Clips a device saves while
 collection is paused are never stored, even after you resume. Pausing does
-not change anything on the device.
+not change anything on the device, except that it ends a running collection
+session, which puts its settings back.
+
+## Collection sessions
+
+A collection session gathers many clips in a few minutes: for a time limit
+you choose, one tablet listens at its most sensitive and Wakewright keeps
+every wake word and near miss it saves. Walk round the room saying the
+wake word, or just talk or leave the TV on, then stop. Start one from
+**Devices** (**Collection session** on the device) or from **Home**.
+
+The tablet stays live: with its sensitivity at the maximum it wakes often
+and may act on whatever is said next, as it always does when it wakes.
+Tell the people in the room.
+
+What it changes, and nothing else:
+
+| Setting                                     | During the session                               |
+| ------------------------------------------- | ------------------------------------------------ |
+| Wake word engine (`voice.wake_word_engine`) | microWakeWord by default, or the engine you pick |
+| Wake word sensitivity                       | Very sensitive                                   |
+| Fine-tune sensitivity                       | its maximum, +10                                 |
+
+The wake words stay as they are, so only engines that have the tablet's
+wake words are offered. microWakeWord is suggested because it wakes most
+readily when turned right up. A tablet in a Kiosk Satellite fleet (leading
+or following) keeps its engine and sensitivity, which the fleet keeps the
+same across tablets; only its fine-tune, which each tablet keeps for
+itself, is raised. Switching engine makes Home Assistant reload the
+tablet's connection, a few seconds without voice at the start and end.
+
+How it keeps the tablet safe:
+
+1. Before changing anything, Wakewright reads the tablet's settings and
+   saves the values it is about to change.
+2. It changes them with the same login it collects with, and reads them
+   back. If the tablet refuses any of them, it puts back whatever changed
+   and the session does not start: nothing is left changed.
+3. It puts them back when you press **Stop**, when the time limit runs out
+   (Wakewright ends it, even with no page open), when you pause collection
+   and, if Wakewright stopped or crashed during a session, as soon as it
+   starts again. Each time it reads the tablet again to confirm every value
+   is back.
+4. If the tablet cannot be reached, it keeps trying (after 5 seconds, then
+   less often, at most every 2 minutes) and Home and Devices show "… is
+   still in collection mode: could not put its settings back yet" until a
+   read confirms them. **Try again now** retries at once. A tablet in this
+   state cannot be removed or moved to another address.
+
+During a session the tablet is checked every 2 seconds instead of every 10,
+because it keeps only 10 of each kind. Each clip from it is tagged with the
+session: its page links to the session, and **Clips** can be filtered to
+clips from any session or one session. Its "device settings then" are the
+boosted settings. The note you give (saying the wake word, not saying it,
+mixed) is kept with the session for training later; it does not change
+what the judges decide. **Collection sessions** (from Home) lists every
+session: when, how long, its clips, the note, how it ended and whether its
+settings were confirmed back. Each session's page also lists every change
+Wakewright wrote to the tablet. [ADR 0020](adr/0020-collection-sessions.md)
+records the decision.
 
 ## What a clip shows
 

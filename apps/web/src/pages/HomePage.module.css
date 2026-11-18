@@ -289,3 +289,7 @@
   font-size: var(--text-small);
   color: var(--color-text-muted);
 }
+
+.sessionLink {
+  margin-top: var(--space-3);
+}

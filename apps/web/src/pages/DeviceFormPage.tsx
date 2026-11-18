@@ -112,7 +112,7 @@ function DeviceForm({ device }: { device?: Device }) {
     <>
       <PageHeader
         title={title}
-        lead="A Kiosk Satellite device on your network. Wakewright logs in with its remote administration password and only reads from it."
+        lead="A Kiosk Satellite device on your network. Wakewright logs in with its remote administration password and reads from it. It changes only the wake word sensitivity, during a collection session you start."
       />
       <Card className={styles.card}>
         <form className={styles.form} onSubmit={submit} noValidate>

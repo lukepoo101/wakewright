@@ -386,6 +386,138 @@ test("a worker created in the UI: token shown once, connects, pauses, is deleted
   }
 });
 
+// Collection sessions (ADR 0020): the one time Wakewright writes to a
+// device. The fake device starts on vsWakeWord, moderately sensitive,
+// fine-tune 0, listening for "alexa".
+const ORIGINAL_SETTINGS = { engine: "vsWakeWord", sensitivity: "moderately", fineTune: 0 };
+type Session = { id: string; state: string; endReason: string | null; restoredAt: string | null };
+
+async function fakeSettings(page: Page) {
+  const s = await (await page.request.get(`${FAKE_CONTROL}/_fake/settings`)).json();
+  return { engine: s.engine, sensitivity: s.sensitivity, fineTune: s.fineTune };
+}
+
+async function fakeFaults(page: Page, faults: object) {
+  await page.request.put(`${FAKE_CONTROL}/_fake/faults`, { data: faults });
+}
+
+async function startByApi(page: Page, limitSeconds: number): Promise<Session> {
+  const { devices } = await (await page.request.get("/api/v1/devices")).json();
+  const res = await page.request.post("/api/v1/collection-sessions", {
+    headers: { "Content-Type": "application/json" },
+    data: { deviceId: devices[0].id, limitSeconds },
+  });
+  expect(res.status()).toBe(201);
+  return res.json();
+}
+
+async function sessionById(page: Page, id: string): Promise<Session> {
+  return (await (await page.request.get(`/api/v1/collection-sessions/${id}`)).json()).session;
+}
+
+test("a collection session boosts the device, tags its clips, and Stop puts the settings back", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/devices");
+  await page.getByRole("link", { name: "Start a collection session on Kitchen" }).click();
+  await expect(page.getByRole("heading", { name: "Start a collection session" })).toBeVisible();
+  await expect(page.getByText("What changes on Kitchen")).toBeVisible();
+  await expect(page.getByLabel("Engine")).toHaveValue("microwakeword");
+  await expect(page.getByText("The tablet stays live")).toBeVisible();
+  await page.getByLabel("Time limit").selectOption("2");
+  await page.getByLabel("Mixed").check();
+  await page.getByRole("button", { name: "Start the session" }).click();
+
+  await expect(page.getByText("Time left")).toBeVisible();
+  expect(await fakeSettings(page)).toEqual({
+    engine: "microWakeWord",
+    sensitivity: "very",
+    fineTune: 10,
+  });
+  const sessionUrl = page.url();
+
+  // A clip heard now is collected within seconds and tagged.
+  await page.request.post(`${FAKE_CONTROL}/_fake/hear`, { data: {} });
+  await expect(page.getByRole("status").filter({ hasText: "wake words" })).toContainText("1", {
+    timeout: 10_000,
+  });
+  await page.getByRole("link", { name: "1 wake word, 0 near misses" }).click();
+  await expect(page.getByText(/of 1 clips|1–1 of 1/)).toBeVisible();
+  await page.getByRole("list", { name: "Clips" }).getByRole("link").first().click();
+  await expect(page.getByText("Collection session", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("microWakeWord · alexa · Very sensitive · fine-tune +10"),
+  ).toBeVisible();
+
+  await page.goto(sessionUrl);
+  await page.getByRole("button", { name: "Stop and put the settings back" }).click();
+  await expect(page.getByText("Finished: the settings are back as they were")).toBeVisible();
+  expect(await fakeSettings(page)).toEqual(ORIGINAL_SETTINGS);
+  await page.getByRole("link", { name: "All sessions" }).click();
+  await expect(page.getByText("Put back and confirmed")).toBeVisible();
+});
+
+test("a start the device refuses changes nothing", async ({ page }) => {
+  await signIn(page);
+  await fakeFaults(page, { rejectKeys: ["voice.wake_word_sensitivity"] });
+  try {
+    await page.goto("/collect/new");
+    await expect(page.getByText("What changes on Kitchen")).toBeVisible();
+    await page.getByRole("button", { name: "Start the session" }).click();
+    await expect(page.getByText("The session did not start")).toBeVisible();
+    await expect(page.getByText(/Nothing was changed on the device/)).toBeVisible();
+    expect(await fakeSettings(page)).toEqual(ORIGINAL_SETTINGS);
+  } finally {
+    await fakeFaults(page, { rejectKeys: [] });
+  }
+});
+
+test("an unreachable device keeps a banner until its settings are confirmed back", async ({
+  page,
+}) => {
+  await signIn(page);
+  const session = await startByApi(page, 600);
+  await fakeFaults(page, { down: true });
+  try {
+    await page.request.post(`/api/v1/collection-sessions/${session.id}/stop`, {
+      headers: { "Content-Type": "application/json" },
+      data: {},
+    });
+    expect((await sessionById(page, session.id)).state).toBe("restoring");
+    await page.goto("/");
+    const banner = page.getByRole("alert").filter({
+      hasText: "Kitchen is still in collection mode: could not put its settings back yet",
+    });
+    await expect(banner).toBeVisible();
+    await page.goto("/devices");
+    await expect(banner).toBeVisible();
+    expect((await fakeSettings(page)).fineTune).toBe(10);
+  } finally {
+    await fakeFaults(page, { down: false });
+  }
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try again now" }).click();
+  await expect(page.getByText("could not put its settings back yet")).toHaveCount(0);
+  expect(await sessionById(page, session.id)).toMatchObject({ state: "ended" });
+  expect(await fakeSettings(page)).toEqual(ORIGINAL_SETTINGS);
+});
+
+test("the parent ends a session at its time limit and puts the settings back", async ({ page }) => {
+  test.setTimeout(90_000);
+  await signIn(page);
+  const session = await startByApi(page, 30);
+  expect((await fakeSettings(page)).fineTune).toBe(10);
+  await expect
+    .poll(async () => (await sessionById(page, session.id)).state, { timeout: 60_000 })
+    .toBe("ended");
+  expect(await sessionById(page, session.id)).toMatchObject({
+    endReason: "time_limit",
+    restoredAt: expect.any(String),
+  });
+  expect(await fakeSettings(page)).toEqual(ORIGINAL_SETTINGS);
+});
+
 async function signIn(page: Page) {
   await page.goto("/");
   await page.getByLabel("Username").fill(USERNAME);

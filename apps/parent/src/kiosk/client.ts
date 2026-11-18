@@ -10,17 +10,21 @@ import {
   type Health,
   Health as HealthShape,
   LoginResponse,
+  type SettingsPatchResponse,
+  SettingsPatchResponse as SettingsPatchShape,
   type SettingsResponse,
   SettingsResponse as SettingsShape,
 } from "./shapes.ts";
 
 // A small client for the Kiosk Satellite REST API (port 2324). It calls
-// only the read surface: login, health, settings and the two wake word
-// diagnostics commands. It logs in with the device's admin password, keeps
-// the token (asked for with a one-day lifetime) and logs in again once when
-// the device answers 401.
+// the read surface (login, health, settings and the two wake word
+// diagnostics commands) and one write, `PATCH /api/settings`, which only a
+// collection session uses, for the wake word sensitivity settings
+// (ADR 0020). It logs in with the device's admin password, keeps the token
+// (asked for with a one-day lifetime) and logs in again once when the
+// device answers 401.
 
-/** Commands this client may call. Anything that changes a device is absent. */
+/** Commands this client may call. Every command that changes a device is absent. */
 const READ_COMMANDS = ["getWakeWordActivations", "getWakeWordActivationAudio"] as const;
 type ReadCommand = (typeof READ_COMMANDS)[number];
 
@@ -57,6 +61,15 @@ export class KioskClient {
   async settings(): Promise<SettingsResponse> {
     const res = await this.authed("GET", "/api/settings");
     return this.parse(res, SettingsShape, "settings");
+  }
+
+  /**
+   * `PATCH /api/settings`. Callers pass only the wake word settings a
+   * collection session may change (kiosk/collection-mode.ts checks the keys).
+   */
+  async patchSettings(values: Record<string, unknown>): Promise<SettingsPatchResponse> {
+    const res = await this.authed("PATCH", "/api/settings", values);
+    return this.parse(res, SettingsPatchShape, "settings change");
   }
 
   async activations(): Promise<ActivationsData> {

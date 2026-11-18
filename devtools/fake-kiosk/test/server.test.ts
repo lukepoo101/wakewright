@@ -5,6 +5,7 @@ import {
   commandResult,
   Health,
   LoginResponse,
+  SettingsPatchResponse,
   SettingsResponse,
   WakeSettingKeys,
 } from "@wakewright/parent/kiosk/shapes";
@@ -195,16 +196,89 @@ describe("fake Kiosk Satellite", () => {
     expect(await res.json()).toEqual({ ok: false, error: "no such clip" });
   });
 
-  test("anything outside the read surface fails, writes included", async () => {
+  test("commands outside the read surface fail", async () => {
     const fake = createFakeKiosk();
     const token = await login(fake);
     expect((await command(fake, token, "stageCustomWakeModel", {})).status).toBe(404);
-    const patch = await fake.app.request("/api/settings", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}` },
-      body: "{}",
+    expect((await command(fake, token, "setWakeWordActive", { active: false })).status).toBe(404);
+  });
+
+  describe("settings writes", () => {
+    const patch = (fake: FakeKiosk, token: string | undefined, body: unknown) =>
+      fake.app.request("/api/settings", {
+        method: "PATCH",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: JSON.stringify(body),
+      });
+    const values = async (fake: FakeKiosk, token: string) => {
+      const res = await fake.app.request("/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const list = SettingsResponse.parse(await res.json()).settings;
+      return Object.fromEntries(list.map((s) => [s.key, s.value]));
+    };
+
+    test("need a token", async () => {
+      expect((await patch(createFakeKiosk(), undefined, {})).status).toBe(401);
     });
-    expect(patch.status).toBe(404);
+
+    test("change the wake word settings, which the settings and later clips report", async () => {
+      const fake = createFakeKiosk({ now: () => NOW, wakeWords: ["alexa"] });
+      const token = await login(fake);
+      const res = await patch(fake, token, {
+        [WakeSettingKeys.engine]: "microwakeword",
+        [WakeSettingKeys.sensitivity]: "very",
+        [WakeSettingKeys.fineTune]: 10,
+      });
+      expect(SettingsPatchResponse.parse(await res.json())).toEqual({
+        ok: true,
+        rejected: [],
+        errors: {},
+      });
+      expect(await values(fake, token)).toMatchObject({
+        [WakeSettingKeys.engine]: "microwakeword",
+        [WakeSettingKeys.sensitivity]: "very",
+        [WakeSettingKeys.fineTune]: 10,
+        [WakeSettingKeys.wakeWords]: '["alexa"]',
+      });
+      const heard = fake.hear();
+      expect(heard).toMatchObject({ engine: "microWakeWord", wakeWord: "alexa" });
+      expect(fake.writes).toHaveLength(1);
+    });
+
+    test("refuse bad values and other keys key by key, applying the rest", async () => {
+      const fake = createFakeKiosk();
+      const token = await login(fake);
+      const res = await patch(fake, token, {
+        [WakeSettingKeys.engine]: "pryon",
+        [WakeSettingKeys.fineTune]: 11,
+        [WakeSettingKeys.sensitivity]: "very",
+        "screen.brightness": 10,
+      });
+      const body = SettingsPatchResponse.parse(await res.json());
+      expect(body.ok).toBe(false);
+      expect(body.rejected.sort()).toEqual(
+        [WakeSettingKeys.engine, WakeSettingKeys.fineTune, "screen.brightness"].sort(),
+      );
+      expect(fake.settings).toMatchObject({
+        engine: "vsWakeWord",
+        sensitivity: "very",
+        fineTune: 0,
+      });
+    });
+
+    test("can be refused by a fault, or the device can be down", async () => {
+      const fake = createFakeKiosk();
+      const token = await login(fake);
+      fake.faults.rejectKeys = new Set([WakeSettingKeys.sensitivity]);
+      const body = SettingsPatchResponse.parse(
+        await (await patch(fake, token, { [WakeSettingKeys.sensitivity]: "very" })).json(),
+      );
+      expect(body.rejected).toEqual([WakeSettingKeys.sensitivity]);
+      expect(fake.settings.sensitivity).toBe("moderately");
+      fake.faults.down = true;
+      expect((await patch(fake, token, {})).status).toBe(503);
+    });
   });
 
   test("the in-process fetch can be taken offline", async () => {

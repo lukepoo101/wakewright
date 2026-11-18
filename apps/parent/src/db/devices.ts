@@ -117,6 +117,11 @@ export function recordPollSuccess(
   ).run(id, s.at, s.cursorJson, s.reportedJson, s.reportedAt, s.gap ? 1 : 0);
 }
 
+/** Forgets what was read from a device, so its next poll reads it again. */
+export function invalidateReported(db: Database, id: string): void {
+  db.query("UPDATE devices SET reported_at = NULL WHERE id = ?").run(id);
+}
+
 export function recordPollFailure(
   db: Database,
   id: string,
