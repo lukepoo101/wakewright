@@ -8,25 +8,25 @@ import { mountSpa } from "../src/spa.ts";
 import { version } from "../src/version.ts";
 import { testApi } from "./helpers.ts";
 
-function migratedApi() {
-  return testApi().api;
+async function migratedApi() {
+  return (await testApi()).api;
 }
 
 describe("health", () => {
   test("/healthz reports the version", async () => {
-    const res = await migratedApi().request("/healthz");
+    const res = await (await migratedApi()).request("/healthz");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok", version });
   });
 
   test("/readyz is ready once migrated", async () => {
-    const res = await migratedApi().request("/readyz");
+    const res = await (await migratedApi()).request("/readyz");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: "ready" });
   });
 
   test("/readyz is not ready on an unmigrated database", async () => {
-    const res = await testApi({ db: openDatabase(":memory:") }).api.request("/readyz");
+    const res = await (await testApi({ db: openDatabase(":memory:") })).api.request("/readyz");
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ status: "not_ready" });
   });
@@ -34,24 +34,26 @@ describe("health", () => {
 
 describe("API", () => {
   test("serves an OpenAPI 3.1 document describing its routes", async () => {
-    const res = await migratedApi().request("/api/openapi.json");
+    const res = await (await migratedApi()).request("/api/openapi.json");
     const doc = (await res.json()) as { openapi: string; paths: Record<string, unknown> };
     expect(doc.openapi).toBe("3.1.0");
     expect(Object.keys(doc.paths)).toEqual(expect.arrayContaining(["/healthz", "/readyz"]));
   });
 
   test("unknown API paths answer JSON 404", async () => {
-    const res = await migratedApi().request("/api/nope");
+    const res = await (await migratedApi()).request("/api/nope");
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ error: "not_found" });
   });
 });
 
+const spaApi = await migratedApi();
+
 describe("SPA", () => {
   const dir = mkdtempSync(join(tmpdir(), "wakewright-spa-"));
   writeFileSync(join(dir, "index.html"), "<!doctype html><title>t</title>");
   writeFileSync(join(dir, "app-abc123.js"), "console.log(1)");
-  const app = new Hono().route("/", migratedApi());
+  const app = new Hono().route("/", spaApi);
   mountSpa(app, dir);
 
   test("hashed assets are cached for a year", async () => {

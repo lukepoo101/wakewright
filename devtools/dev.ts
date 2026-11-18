@@ -1,5 +1,6 @@
 // `mise run dev`: the parent's development entry (HMR, data in .dev-data/)
-// and two fake Kiosk Satellite devices, with prefixed logs. Ctrl-C stops all.
+// and two fake Kiosk Satellite devices (password `dev`) that hear a new clip
+// every 45 and 70 seconds, with prefixed logs. Ctrl-C stops all.
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
@@ -12,11 +13,19 @@ const processes = [
   },
   {
     name: "kitchen",
-    cmd: ["bun", "devtools/fake-kiosk/src/main.ts", "--port", "23241", "--name", "kitchen"],
+    cmd: [
+      "bun",
+      "devtools/fake-kiosk/src/main.ts",
+      ...["--port", "23241", "--name", "kitchen", "--seed", "1", "--every", "45"],
+    ],
   },
   {
     name: "lounge",
-    cmd: ["bun", "devtools/fake-kiosk/src/main.ts", "--port", "23242", "--name", "lounge"],
+    cmd: [
+      "bun",
+      "devtools/fake-kiosk/src/main.ts",
+      ...["--port", "23242", "--name", "lounge", "--seed", "2", "--every", "70"],
+    ],
   },
 ];
 

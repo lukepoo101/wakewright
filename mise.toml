@@ -15,7 +15,7 @@ description = "Install dependencies from the lockfile"
 run = "bun install --frozen-lockfile"
 
 [tasks.dev]
-description = "Run the parent with HMR and two fake Kiosk Satellite devices"
+description = "Run the parent (rebuilt on change) and two fake Kiosk Satellite devices"
 run = "bun devtools/dev.ts"
 
 [tasks.build]

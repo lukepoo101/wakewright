@@ -1,8 +1,15 @@
 import type { Database } from "bun:sqlite";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApi } from "../src/api/index.ts";
 import { Auth } from "../src/auth.ts";
+import { BlobStore } from "../src/blobs.ts";
+import { SecretBox } from "../src/crypto.ts";
 import { openDatabase } from "../src/db/db.ts";
 import { migrate } from "../src/db/migrate.ts";
+import { Devices } from "../src/devices.ts";
+import { Collector } from "../src/ingest.ts";
 import { createLogger, type Logger } from "../src/log.ts";
 
 // Shared test set-up: an in-memory migrated database, a silent logger and
@@ -21,8 +28,51 @@ export function migratedDb(): Database {
 
 export const ORIGIN = "http://localhost";
 
-export function testApi(options: { db?: Database; managed?: boolean; now?: () => number } = {}) {
+export function tempDir(prefix = "wakewright-test-"): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+export const TEST_KEY = new Uint8Array(32).fill(42);
+
+export interface Parts {
+  db: Database;
+  blobs: BlobStore;
+  devices: Devices;
+  collector: Collector;
+  dataDir: string;
+}
+
+/**
+ * The parent's collection pieces on a temporary data directory, talking to
+ * devices through `fetchImpl` (usually a fake device's in-process fetch).
+ */
+export async function testParts(
+  options: { db?: Database; dataDir?: string; fetch?: typeof fetch; now?: () => number } = {},
+): Promise<Parts> {
   const db = options.db ?? migratedDb();
+  const dataDir = options.dataDir ?? tempDir();
+  const blobs = new BlobStore(dataDir);
+  blobs.init();
+  const devices = new Devices(db, await SecretBox.create(TEST_KEY), {
+    fetch: options.fetch ?? fetch,
+    timeoutMs: 2000,
+  });
+  const collector = new Collector({
+    db,
+    blobs,
+    devices,
+    log: quietLog,
+    intervalMs: 10_000,
+    now: options.now,
+  });
+  return { db, blobs, devices, collector, dataDir };
+}
+
+export async function testApi(
+  options: { db?: Database; managed?: boolean; now?: () => number; fetch?: typeof fetch } = {},
+) {
+  const parts = await testParts(options);
+  const { db } = parts;
   const auth = new Auth({
     db,
     log: quietLog,
@@ -30,7 +80,7 @@ export function testApi(options: { db?: Database; managed?: boolean; now?: () =>
     now: options.now,
     hashOptions: FAST_HASH,
   });
-  const api = createApi({ db, auth });
+  const api = createApi({ ...parts, auth, intervalMs: 10_000 });
   let cookie: string | undefined;
 
   // A tiny browser: same-origin headers and a cookie jar of one.
@@ -57,7 +107,7 @@ export function testApi(options: { db?: Database; managed?: boolean; now?: () =>
   }
 
   return {
-    db,
+    ...parts,
     auth,
     api,
     request,

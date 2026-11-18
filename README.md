@@ -41,7 +41,7 @@ You need [mise](https://mise.jdx.dev), which installs the pinned Bun.
 ```sh
 mise install          # Bun, as pinned in mise.toml
 mise run setup        # bun install --frozen-lockfile
-mise run dev          # parent on http://localhost:8080 with hot reload,
+mise run dev          # parent on http://localhost:8080, rebuilt on change,
                       # plus two fake Kiosk Satellite devices
 mise run check        # everything CI checks: versions, lockfile, format, lint, types, tests
 mise run e2e          # Playwright smoke test against the production build

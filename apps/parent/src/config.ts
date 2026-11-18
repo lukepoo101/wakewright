@@ -30,6 +30,9 @@ const Env = z.object({
     .default("admin"),
   WAKEWRIGHT__ADMIN__PASSWORD: z.string().optional(),
   WAKEWRIGHT__ADMIN__PASSWORD_FILE: z.string().min(1).optional(),
+  // How often each device is polled, and how long one device call may take.
+  WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS: z.coerce.number().min(1).max(3600).default(10),
+  WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS: z.coerce.number().min(1).max(120).default(10),
   WAKEWRIGHT__SECRET_KEY: z.string().optional(),
   WAKEWRIGHT__SECRET_KEY_FILE: z.string().min(1).optional(),
 });
@@ -38,6 +41,7 @@ export interface Config {
   server: { host: string; port: number; staticDir: string; publicUrl?: URL };
   storage: { dataDir: string; dbPath: string };
   log: { level: "debug" | "info" | "warn" | "error" };
+  collector: { intervalMs: number; timeoutMs: number };
   admin: {
     username: string;
     /** Set when the admin password is managed by configuration. */
@@ -77,6 +81,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     storage: { dataDir, dbPath: join(dataDir, "db", "wakewright.sqlite3") },
     log: { level: e.WAKEWRIGHT__LOG__LEVEL },
+    collector: {
+      intervalMs: e.WAKEWRIGHT__COLLECTOR__INTERVAL_SECONDS * 1000,
+      timeoutMs: e.WAKEWRIGHT__COLLECTOR__TIMEOUT_SECONDS * 1000,
+    },
     admin: { username: e.WAKEWRIGHT__ADMIN__USERNAME, password },
     secretKey: key === undefined ? undefined : parseSecretKey(key, "WAKEWRIGHT__SECRET_KEY"),
   };

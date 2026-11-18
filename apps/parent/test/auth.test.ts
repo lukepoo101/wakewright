@@ -6,7 +6,7 @@ const PASSWORD = "correct horse battery";
 
 describe("first-run setup", () => {
   test("reports setup until the admin exists, then signs the new admin in", async () => {
-    const t = testApi();
+    const t = await testApi();
     expect(await (await t.request("/api/v1/session")).json()).toEqual({
       state: "setup",
       managed: false,
@@ -21,7 +21,7 @@ describe("first-run setup", () => {
   });
 
   test("can run only once", async () => {
-    const t = testApi();
+    const t = await testApi();
     await t.setUp();
     const again = await t.request("/api/v1/setup", {
       json: { username: "mallory", password: "another long password" },
@@ -30,7 +30,7 @@ describe("first-run setup", () => {
   });
 
   test("two racing setups create one account", async () => {
-    const t = testApi();
+    const t = await testApi();
     const body = (u: string) => ({ json: { username: u, password: PASSWORD } });
     const results = await Promise.all([
       t.request("/api/v1/setup", body("a")),
@@ -41,7 +41,7 @@ describe("first-run setup", () => {
   });
 
   test("rejects a short password and a bad username", async () => {
-    const t = testApi();
+    const t = await testApi();
     const short = await t.request("/api/v1/setup", { json: { username: "a", password: "short" } });
     expect(short.status).toBe(400);
     expect((await short.json()).message).toContain("at least 12");
@@ -52,14 +52,14 @@ describe("first-run setup", () => {
   });
 
   test("is disabled when configuration manages the password", async () => {
-    const t = testApi({ managed: true });
+    const t = await testApi({ managed: true });
     expect(
       (await t.request("/api/v1/setup", { json: { username: "a", password: PASSWORD } })).status,
     ).toBe(409);
   });
 
   test("stores an argon2id hash, never the password", async () => {
-    const t = testApi();
+    const t = await testApi();
     await t.setUp("admin", PASSWORD);
     const row = t.db.query<{ password_hash: string }, []>("SELECT password_hash FROM users").get();
     expect(row?.password_hash).toStartWith("$argon2id$");
@@ -69,7 +69,7 @@ describe("first-run setup", () => {
 
 describe("sign-in and sign-out", () => {
   test("sets a HttpOnly, SameSite=Lax session cookie; sign-out ends the session", async () => {
-    const t = testApi();
+    const t = await testApi();
     await t.setUp();
     t.signOutLocally();
     const res = await t.request("/api/v1/session", {
@@ -93,7 +93,7 @@ describe("sign-in and sign-out", () => {
   });
 
   test("usernames are case-insensitive; a wrong password is a 401", async () => {
-    const t = testApi();
+    const t = await testApi();
     await t.setUp("Admin", PASSWORD);
     t.signOutLocally();
     expect(
@@ -111,7 +111,7 @@ describe("sign-in and sign-out", () => {
   });
 
   test("throttles repeated failures with 429 and Retry-After", async () => {
-    const t = testApi();
+    const t = await testApi();
     await t.setUp();
     t.signOutLocally();
     const attempt = (password: string) =>
@@ -126,7 +126,7 @@ describe("sign-in and sign-out", () => {
   });
 
   test("a cross-site form post is refused", async () => {
-    const t = testApi();
+    const t = await testApi();
     const res = await t.api.request(`${ORIGIN}/api/v1/session`, {
       method: "POST",
       headers: {
@@ -140,7 +140,7 @@ describe("sign-in and sign-out", () => {
   });
 
   test("a non-JSON body is refused", async () => {
-    const t = testApi();
+    const t = await testApi();
     const res = await t.api.request(`${ORIGIN}/api/v1/setup`, {
       method: "POST",
       headers: { "Content-Type": "text/plain", "Sec-Fetch-Site": "same-origin" },

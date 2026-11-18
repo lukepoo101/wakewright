@@ -19,7 +19,7 @@ word clips, store them, and browse and play them.
             ┌───────────────────────── parent (one Bun process) ─────────────────────────┐
  browser ──►│ Bun.serve ─► Hono: /healthz /readyz /api/*  ─┐    static SPA (dist/public)  │
             │                                              ▼                              │
-            │   ingest loop ──► kiosk client ──► blob store + bun:sqlite (WAL, /data)     │
+            │   collector ──► Source (Kiosk) ──► blob store + bun:sqlite (WAL, /data)     │
             └──────────────────────│───────────────────────────────────────────────────┘
                                    ▼ HTTP, read only
                        Kiosk Satellite devices (:2324)
@@ -45,6 +45,18 @@ word clips, store them, and browse and play them.
   `HttpOnly`, `SameSite=Lax` cookie, a same-origin check on changes and a
   throttled login ([ADR 0009](adr/0009-admin-account-and-sessions.md)). The
   SPA shows setup or sign-in in place of every screen until it has a session.
+- **Collection**: the collector (`ingest.ts`) polls each device through a
+  `Source` (`source.ts`; the Kiosk Satellite adapter is in `kiosk/`), every
+  10 s by default with backoff on failure, and stores each new clip once:
+  audio checked as 16 kHz mono PCM WAV and written to the blob store, then
+  its row inserted, unique per device and source id. A pause toggle stops
+  polling and skips clips captured while paused. Device passwords are
+  encrypted with AES-256-GCM under a key kept outside the database
+  ([ADR 0011](adr/0011-collecting-clips.md),
+  [ADR 0012](adr/0012-device-password-encryption.md)).
+- **Backups**: `Bun.cron` runs `VACUUM INTO /data/backups/wakewright-YYYYMMDD.sqlite3`
+  at 03:30 every night and keeps 14. Audio blobs are immutable, so
+  file-level backup tools copy them incrementally.
 - **Health**: `/healthz` (the process is alive) and `/readyz` (the database
   is migrated and writable). The image's `HEALTHCHECK` runs
   `main.js healthcheck`, because the distroless base has no shell or curl.
@@ -54,15 +66,22 @@ word clips, store them, and browse and play them.
 ```
 apps/parent/          @wakewright/parent: the server
   src/main.ts         production entry: serve | migrate | healthcheck
-  src/dev.ts          development entry: same API + the SPA via Bun's HTML import (HMR)
+  src/dev.ts          development entry: same API + the SPA via Bun's HTML import
   src/boot.ts         shared start-up: open DB, migrate, build the API, start loops
   src/config.ts       WAKEWRIGHT__* environment schema
   src/auth.ts         admin account, sessions, login throttle
+  src/source.ts       the Source interface every kind of device implements
+  src/ingest.ts       the collector: polling, storing clips, status, pause
+  src/devices.ts      device management: sources, encrypted passwords, testing
+  src/crypto.ts       AES-256-GCM for stored secrets; the instance key
+  src/blobs.ts        content-addressed blob store
+  src/wav.ts          RIFF/WAVE header reader
+  src/backup.ts       nightly VACUUM INTO backups
   src/log.ts          JSON-lines logger
   src/spa.ts          serves the built SPA
   src/api/            one file per API area, mounted in api/index.ts (exports AppType)
   src/db/             db.ts (connection), migrate.ts (runner + list), migrations/NNNN_*.sql
-  src/kiosk/          Kiosk Satellite client; shapes.ts holds the zod response shapes
+  src/kiosk/          Kiosk Satellite: client.ts, source.ts (the adapter), shapes.ts (zod shapes)
   test/               bun test: unit and in-process integration tests
 apps/web/             @wakewright/web: the SPA
   index.html  src/{main.tsx,router.tsx,api.ts,tokens.css}
@@ -79,31 +98,34 @@ docs/                 this documentation and the ADRs
 
 ## Where the v0.0.1 features go
 
-| Feature                                                   | Location                                                                                                         |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Device password encryption (AES-256-GCM, `crypto.subtle`) | `apps/parent/src/crypto.ts`                                                                                      |
-| Schema for users, devices, secrets, blobs, clips          | `apps/parent/src/db/migrations/0001_init.sql` (editable until v0.0.1 is released), queries in `src/db/<area>.ts` |
-| Content-addressed blob store                              | `apps/parent/src/blobs.ts`                                                                                       |
-| Kiosk REST client                                         | `apps/parent/src/kiosk/client.ts`, parsing with `kiosk/shapes.ts`                                                |
-| Poll loop, cursors, gap detection                         | `apps/parent/src/ingest.ts`, started from `boot.ts`                                                              |
-| Device and clip APIs                                      | `apps/parent/src/api/devices.ts`, `api/clips.ts`, mounted in `api/index.ts`                                      |
-| Devices, clips and clip pages; waveform player            | `apps/web/src/pages/`, `apps/web/src/components/AudioPlayer.tsx`                                                 |
-| Nightly `VACUUM INTO` backup                              | `Bun.cron`, started from `boot.ts`                                                                               |
+| Feature                               | Location                                                         |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| Clip API                              | `apps/parent/src/api/clips.ts`, mounted in `api/index.ts`        |
+| Clips and clip pages; waveform player | `apps/web/src/pages/`, `apps/web/src/components/AudioPlayer.tsx` |
 
 The fake device in `devtools/fake-kiosk` builds its responses from the same
 `kiosk/shapes.ts`, so the client and the fake cannot drift apart silently.
-Extend the fake (fault injection, more clips) alongside the client.
+It behaves like the real app where Wakewright depends on it: a password,
+tokens that expire, login throttling, a ring buffer of 10 per kind, settings
+with wake word diagnostics on or off, and new clips over time (`hear()`).
+Tests inject faults through `faults` (offline, slow, malformed list, invalid
+audio, a download that breaks); `mise run dev` and E2E reach the same
+controls over HTTP under `/_fake/`. Extend it alongside the client.
 
 ## Decisions
 
 Architecture decisions are recorded in [adr/](adr/):
 
-1. [Licence: Apache-2.0](adr/0001-licence-apache-2.0.md)
-2. [A parent and stateless workers](adr/0002-parent-and-workers.md)
-3. [TypeScript on Bun for the parent](adr/0003-typescript-on-bun.md)
-4. [Hono API with a React SPA](adr/0004-hono-api-and-react-spa.md)
-5. [SQLite with plain SQL and numbered migrations](adr/0005-sqlite-and-migrations.md)
-6. [Tooling: Bun, Biome for lint, mise tasks](adr/0006-tooling.md)
-7. [No telemetry](adr/0007-no-telemetry.md)
-8. [Read-only device access](adr/0008-read-only-device-access.md)
-9. [One local admin account with server-side sessions](adr/0009-admin-account-and-sessions.md)
+- 0001 [Licence: Apache-2.0](adr/0001-licence-apache-2.0.md)
+- 0002 [A parent and stateless workers](adr/0002-parent-and-workers.md)
+- 0003 [TypeScript on Bun for the parent](adr/0003-typescript-on-bun.md)
+- 0004 [Hono API with a React SPA](adr/0004-hono-api-and-react-spa.md)
+- 0005 [SQLite with plain SQL and numbered migrations](adr/0005-sqlite-and-migrations.md)
+- 0006 [Tooling: Bun, Biome for lint, mise tasks](adr/0006-tooling.md)
+- 0007 [No telemetry](adr/0007-no-telemetry.md)
+- 0008 [Read-only device access](adr/0008-read-only-device-access.md)
+- 0009 [One local admin account with server-side sessions](adr/0009-admin-account-and-sessions.md)
+- 0009 [CI checks, fork safety and speed](adr/0009-ci-checks-and-fork-safety.md)
+- 0010 [Releases, changelog and published images](adr/0010-releases-changelog-and-images.md)
+- 0011 [Collecting clips: a Source interface and an idempotent poller](adr/0011-collecting-clips.md)
+- 0012 [Device passwords encrypted with an instance key](adr/0012-device-password-encryption.md)
