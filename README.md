@@ -15,12 +15,16 @@ It works with [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite)
 devices over their HTTP API. Wakewright only reads from a device; it never
 changes its settings or installs anything on it.
 
-> **Status: pre-alpha.** v0.0.1, the first release, collects Kiosk
-> Satellite clips, stores them, and lets you browse and play them in a web
-> UI. The image is `ghcr.io/lukepoo101/wakewright` for amd64 and arm64:
-> `0.0.1` (also `0.0` and `latest`) for the
-> [release](https://github.com/lukepoo101/wakewright/releases), and `edge`,
-> built from every merge to `main`, for testing.
+> **Status: pre-alpha.** Wakewright collects Kiosk Satellite clips,
+> stores them, and lets you browse and play them in a web UI. A worker
+> judges each clip with openWakeWord, microWakeWord and speech to text, and
+> the UI shows where the judges disagree with each other and with the
+> device. Labelling, datasets and training are not built yet. Two images,
+> `ghcr.io/lukepoo101/wakewright` (the parent) and
+> `ghcr.io/lukepoo101/wakewright-worker`, for amd64 and arm64, carry each
+> [release](https://github.com/lukepoo101/wakewright/releases)'s version
+> (`latest` is the newest); `edge` is built from every merge to `main`, for
+> testing. Expect breaking changes between minor versions before 1.0.
 
 ## Using it
 
