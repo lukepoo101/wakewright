@@ -8,7 +8,8 @@
     "fake-kiosk": "./src/main.ts"
   },
   "exports": {
-    ".": "./src/server.ts"
+    ".": "./src/server.ts",
+    "./synth": "./src/synth.ts"
   },
   "dependencies": {
     "@wakewright/parent": "workspace:*",

@@ -10,7 +10,8 @@ Instructions for AI coding agents working on Wakewright. Humans should read
   tests. Run it before every push; it must pass. Never bypass Git hooks.
 - `bun fmt`: fix formatting. `bun test <path>`: run some tests.
 - `mise run e2e`: Playwright smoke test against the production build.
-- `mise run dev`: parent with HMR on :8080 plus fake devices on :23241/:23242.
+- `mise run dev`: parent on :8080, rebuilt on change, plus fake devices on
+  :23241/:23242 (password `dev`).
 
 Do not add `check` or `fmt` scripts to a `package.json`: `bun check` and
 `bun fmt` would run the script instead of the built-in tool.

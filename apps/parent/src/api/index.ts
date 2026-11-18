@@ -2,14 +2,21 @@ import type { Database } from "bun:sqlite";
 import type { Context } from "hono";
 import { csrf } from "hono/csrf";
 import type { Auth } from "../auth.ts";
+import type { Devices } from "../devices.ts";
+import type { Collector } from "../ingest.ts";
 import { version } from "../version.ts";
-import { type CookiePolicy, newApi } from "./common.ts";
+import { type CookiePolicy, newApi, requireUser } from "./common.ts";
+import { deviceRoutes } from "./devices.ts";
 import { healthRoutes } from "./health.ts";
 import { sessionRoutes } from "./session.ts";
 
 export interface ApiDeps {
   db: Database;
   auth: Auth;
+  devices: Devices;
+  collector: Collector;
+  /** The collector's poll interval, shown in the UI. */
+  intervalMs: number;
   /** The configured public address, if any (WAKEWRIGHT__SERVER__PUBLIC_URL). */
   publicUrl?: URL;
 }
@@ -30,7 +37,8 @@ export function createApi(deps: ApiDeps) {
   app.use("/api/*", csrf({ origin: (origin, c) => sameOrigin(origin, c, deps.publicUrl) }));
   const routes = app
     .route("/", healthRoutes(deps.db))
-    .route("/api/v1", sessionRoutes(deps.auth, policy));
+    .route("/api/v1", sessionRoutes(deps.auth, policy))
+    .route("/api/v1", deviceRoutes(deps, requireUser(deps.auth, policy)));
 
   app.doc31("/api/openapi.json", {
     openapi: "3.1.0",

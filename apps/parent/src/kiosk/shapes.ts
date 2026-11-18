@@ -5,8 +5,9 @@ import { z } from "zod";
 // responses with these, and the fake device (devtools/fake-kiosk) builds its
 // responses from them, so the two cannot drift apart silently.
 //
-// Wakewright only reads from a device: login, health, the wake word
-// diagnostics list and clip audio. It never calls a command that writes.
+// Wakewright only reads from a device: login, health, settings, the wake
+// word diagnostics list and clip audio. It never calls a command that
+// writes.
 
 /** `POST /api/login`. `ttl_days` asks for a longer-lived token. */
 export const LoginRequest = z.object({
@@ -85,6 +86,9 @@ export type ActivationAudioData = z.infer<typeof ActivationAudioData>;
  * reads, and unknown fields are ignored.
  */
 export const Health = z.looseObject({
+  /** The device name set in Kiosk Satellite. */
+  name: z.string().optional(),
+  appVersion: z.string().optional(),
   /** True when this kiosk leads a fleet. */
   leader: z.boolean(),
   /** Name of the leader this kiosk follows, or null. */
@@ -92,3 +96,31 @@ export const Health = z.looseObject({
   uptime: z.looseObject({ app: z.number(), device: z.number() }),
 });
 export type Health = z.infer<typeof Health>;
+
+/**
+ * One entry of `GET /api/settings`: a setting's definition and its current
+ * value. Secret values come back masked. Only the fields Wakewright reads
+ * are listed; the device sends more.
+ */
+export const SettingEntry = z.looseObject({
+  key: z.string(),
+  type: z.string(),
+  title: z.string().optional(),
+  value: z.unknown(),
+  options: z.array(z.string()).optional(),
+  optionLabels: z.record(z.string(), z.string()).optional(),
+});
+export type SettingEntry = z.infer<typeof SettingEntry>;
+
+/** `GET /api/settings`: every setting definition with its current value. */
+export const SettingsResponse = z.looseObject({ settings: z.array(SettingEntry) });
+export type SettingsResponse = z.infer<typeof SettingsResponse>;
+
+/** The settings Wakewright reads to show what a device is running. */
+export const WakeSettingKeys = {
+  diagnostics: "wake_word.diagnostics",
+  engine: "voice.wake_word_engine",
+  wakeWords: "voice.wake_words",
+  sensitivity: "voice.wake_word_sensitivity",
+  fineTune: "voice.wake_word_fine_tune",
+} as const;

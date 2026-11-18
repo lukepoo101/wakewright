@@ -9,8 +9,9 @@ import { Button } from "./ui.tsx";
 // The app shell: a top bar (brand, status, theme, sign out), a labelled
 // rail on wide screens and a bottom bar on phones.
 
-const nav: { to: "/"; label: string; icon: IconName }[] = [
+const nav: { to: "/" | "/devices"; label: string; icon: IconName }[] = [
   { to: "/", label: "Home", icon: "home" },
+  { to: "/devices", label: "Devices", icon: "devices" },
 ];
 
 const nextTheme: Record<ThemeChoice, ThemeChoice> = {
@@ -47,7 +48,7 @@ export function Layout({ children, status }: { children: ReactNode; status?: Rea
       <header className={styles.header}>
         <Link to="/" className={styles.brand}>
           <Logo />
-          <span>Wakewright</span>
+          <span className={styles.brandName}>Wakewright</span>
         </Link>
         <div className={styles.status}>{status}</div>
         <div className={styles.tools}>

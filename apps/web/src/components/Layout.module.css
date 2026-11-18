@@ -51,6 +51,22 @@
   border-radius: var(--radius-small);
 }
 
+@media (max-width: 599px) {
+  /* The logo stays; the name would push the controls off a phone screen. */
+  .brandName {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .header {
+    gap: var(--space-2);
+  }
+}
+
 .status {
   flex: 1;
   display: flex;
@@ -74,7 +90,8 @@
 
 .nav ul {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -139,7 +156,7 @@
   }
 
   .nav ul {
-    grid-template-columns: 1fr;
+    grid-auto-flow: row;
     gap: var(--space-1);
   }
 

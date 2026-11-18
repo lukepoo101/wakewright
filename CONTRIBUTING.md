@@ -17,7 +17,7 @@ Install [mise](https://mise.jdx.dev), then:
 ```sh
 mise install       # the Bun version pinned in mise.toml
 mise run setup     # install dependencies from bun.lock
-mise run dev       # parent with hot reload + two fake Kiosk Satellite devices
+mise run dev       # parent, rebuilt on change, + two fake Kiosk Satellite devices
 ```
 
 Install the pre-push hook once, so `mise run check` runs before every push:

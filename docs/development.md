@@ -7,14 +7,20 @@ and runs the project's tasks. Bun is the runtime, package manager, bundler, test
 runner, type checker (`bun check`) and formatter (`bun fmt`). Biome does
 linting only, because `bun lint` does not exist yet ([ADR 0006](adr/0006-tooling.md)).
 
-| Task                         | What it runs                                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `mise run setup`             | `bun install --frozen-lockfile`                                                                                          |
-| `mise run dev`               | `devtools/dev.ts`: the parent's dev entry with HMR on :8080 (data in `.dev-data/`) and fake devices on :23241 and :23242 |
-| `mise run build`             | `bun run build`: the SPA into `dist/public`, the server into `dist/main.js`                                              |
-| `mise run check`             | the checks below, in order                                                                                               |
-| `mise run e2e`               | Playwright: builds `dist/` and tests it, or tests `E2E_BASE_URL` when set                                                |
-| `mise run release <version>` | opens the release pull request ([RELEASING.md](RELEASING.md))                                                            |
+| Task                         | What it runs                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `mise run setup`             | `bun install --frozen-lockfile`                                                                                 |
+| `mise run dev`               | `devtools/dev.ts`: the parent's dev entry on :8080 (data in `.dev-data/`) and fake devices on :23241 and :23242 |
+| `mise run build`             | `bun run build`: the SPA into `dist/public`, the server into `dist/main.js`                                     |
+| `mise run check`             | the checks below, in order                                                                                      |
+| `mise run e2e`               | Playwright: builds `dist/` and tests it, or tests `E2E_BASE_URL` when set                                       |
+| `mise run release <version>` | opens the release pull request ([RELEASING.md](RELEASING.md))                                                   |
+
+`mise run dev` serves the SPA through Bun's HTML import and rebuilds it when
+a file changes; reload the page to see it. Hot module replacement is off,
+because Bun 1.4.4's dev bundler breaks TanStack Router under it. The fake
+devices hear a new synthetic clip every 45 and 70 seconds; add them in the UI
+as `127.0.0.1:23241` and `127.0.0.1:23242` with the password `dev`.
 
 `mise run check`:
 

@@ -3,7 +3,10 @@ import { errorMessage } from "./api.ts";
 import { Layout } from "./components/Layout.tsx";
 import { Alert, Button, Loading } from "./components/ui.tsx";
 import { AuthScreen, LoginPage, SetupPage } from "./pages/AuthPages.tsx";
+import { DevicesPage } from "./pages/DevicesPage.tsx";
+import { EditDevicePage, NewDevicePage } from "./pages/DeviceFormPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
+import { CollectionStatus } from "./components/CollectionStatus.tsx";
 import { useSession } from "./session.ts";
 
 // Code-based route tree. Each screen is a page in pages/ with its route
@@ -30,7 +33,7 @@ function SessionGate() {
   if (session.data.state === "setup") return <SetupPage />;
   if (session.data.state === "signed_out") return <LoginPage managed={session.data.managed} />;
   return (
-    <Layout>
+    <Layout status={<CollectionStatus />}>
       <Outlet />
     </Layout>
   );
@@ -40,7 +43,28 @@ const rootRoute = createRootRoute({ component: SessionGate });
 
 const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: HomePage });
 
-const routeTree = rootRoute.addChildren([homeRoute]);
+const devicesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/devices",
+  component: DevicesPage,
+});
+
+const newDeviceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/devices/new",
+  component: NewDevicePage,
+});
+
+const editDeviceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/devices/$deviceId/edit",
+  component: function EditDeviceRoute() {
+    const { deviceId } = editDeviceRoute.useParams();
+    return <EditDevicePage deviceId={deviceId} />;
+  },
+});
+
+const routeTree = rootRoute.addChildren([homeRoute, devicesRoute, newDeviceRoute, editDeviceRoute]);
 
 export const router = createRouter({ routeTree });
 

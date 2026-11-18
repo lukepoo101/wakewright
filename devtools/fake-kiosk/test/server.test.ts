@@ -5,46 +5,48 @@ import {
   commandResult,
   Health,
   LoginResponse,
+  SettingsResponse,
+  WakeSettingKeys,
 } from "@wakewright/parent/kiosk/shapes";
-import { createFakeKiosk } from "../src/server.ts";
+import { BUFFER_SIZE, createFakeKiosk, type FakeKiosk } from "../src/server.ts";
 import { CLIP_SECONDS, SAMPLE_RATE } from "../src/synth.ts";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 
-async function login(app: ReturnType<typeof createFakeKiosk>) {
-  const res = await app.request("/api/login", {
-    method: "POST",
-    body: JSON.stringify({ password: "dev" }),
-  });
+async function login(fake: FakeKiosk, body: object = { password: "dev" }) {
+  const res = await fake.app.request("/api/login", { method: "POST", body: JSON.stringify(body) });
   expect(res.status).toBe(200);
   return LoginResponse.parse(await res.json()).token;
 }
 
-function command(
-  app: ReturnType<typeof createFakeKiosk>,
-  token: string,
-  name: string,
-  body?: unknown,
-) {
-  return app.request(`/api/commands/${name}`, {
+function command(fake: FakeKiosk, token: string, name: string, body?: unknown) {
+  return fake.app.request(`/api/commands/${name}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 
+async function list(fake: FakeKiosk, token: string) {
+  const body = commandResult(ActivationsData).parse(
+    await (await command(fake, token, "getWakeWordActivations")).json(),
+  );
+  if (!body.ok) throw new Error(body.error);
+  return body.data;
+}
+
 describe("fake Kiosk Satellite", () => {
-  test("rejects a wrong password", async () => {
-    const app = createFakeKiosk();
-    const res = await app.request("/api/login", {
-      method: "POST",
-      body: JSON.stringify({ password: "x" }),
-    });
-    expect(res.status).toBe(401);
+  test("rejects a wrong password, then throttles logins like the device", async () => {
+    const fake = createFakeKiosk();
+    const wrong = () =>
+      fake.app.request("/api/login", { method: "POST", body: JSON.stringify({ password: "x" }) });
+    for (let i = 0; i < 4; i++) expect((await wrong()).status).toBe(401);
+    expect((await wrong()).status).toBe(401);
+    expect((await wrong()).status).toBe(429);
   });
 
   test("health needs no token and matches the shape", async () => {
-    const res = await createFakeKiosk({ name: "kitchen" }).request("/api/health");
+    const res = await createFakeKiosk({ name: "kitchen" }).app.request("/api/health");
     expect(Health.parse(await res.json())).toMatchObject({
       name: "kitchen",
       leader: false,
@@ -52,33 +54,69 @@ describe("fake Kiosk Satellite", () => {
     });
   });
 
-  test("commands need a token", async () => {
-    const res = await command(createFakeKiosk(), "wrong", "getWakeWordActivations");
-    expect(res.status).toBe(401);
+  test("commands need a token, and tokens expire", async () => {
+    let now = NOW;
+    const fake = createFakeKiosk({ now: () => now });
+    expect((await command(fake, "wrong", "getWakeWordActivations")).status).toBe(401);
+    const token = await login(fake, { password: "dev", ttl_days: 1 });
+    expect((await command(fake, token, "getWakeWordActivations")).status).toBe(200);
+    now += 86_400_000;
+    expect((await command(fake, token, "getWakeWordActivations")).status).toBe(401);
+    const fresh = await login(fake);
+    fake.expireTokens();
+    expect((await command(fake, fresh, "getWakeWordActivations")).status).toBe(401);
   });
 
   test("lists activations and near misses, newest first, in the device's shape", async () => {
-    const app = createFakeKiosk({ now: () => NOW });
-    const res = await command(app, await login(app), "getWakeWordActivations");
-    const body = commandResult(ActivationsData).parse(await res.json());
-    if (!body.ok) throw new Error(body.error);
-    expect(body.data.activations.length).toBe(4);
-    expect(body.data.nearMisses.length).toBe(2);
-    expect(body.data.nearMisses.every((a) => a.nearMiss === true)).toBe(true);
-    const ids = body.data.activations.map((a) => Number(a.id));
+    const fake = createFakeKiosk({ now: () => NOW });
+    const data = await list(fake, await login(fake));
+    expect(data.activations.length).toBe(4);
+    expect(data.nearMisses.length).toBe(2);
+    expect(data.nearMisses.every((a) => a.nearMiss === true)).toBe(true);
+    const ids = data.activations.map((a) => Number(a.id));
     expect(ids).toEqual([...ids].sort((a, b) => b - a));
     expect(ids[0]).toBeLessThan(NOW);
   });
 
-  test("serves each clip as a 3 s, 16 kHz mono PCM16 WAV", async () => {
-    const app = createFakeKiosk({ now: () => NOW });
-    const token = await login(app);
-    const list = commandResult(ActivationsData).parse(
-      await (await command(app, token, "getWakeWordActivations")).json(),
+  test("keeps the last 10 of each kind: older entries roll off", async () => {
+    let now = NOW;
+    const fake = createFakeKiosk({ now: () => now, initialClips: 0 });
+    const heard = [];
+    for (let i = 0; i < 13; i++) {
+      now += 1000;
+      heard.push(fake.hear());
+    }
+    fake.hear({ nearMiss: true });
+    const data = await list(fake, await login(fake));
+    expect(data.activations.length).toBe(BUFFER_SIZE);
+    expect(data.activations.map((a) => a.id)).toEqual(
+      heard
+        .slice(-BUFFER_SIZE)
+        .reverse()
+        .map((a) => a.id),
     );
-    if (!list.ok) throw new Error(list.error);
-    for (const entry of [...list.data.activations, ...list.data.nearMisses]) {
-      const res = await command(app, token, "getWakeWordActivationAudio", { id: entry.id });
+    expect(data.nearMisses.length).toBe(1);
+  });
+
+  test("with diagnostics off, nothing is kept and settings say so", async () => {
+    const fake = createFakeKiosk();
+    const token = await login(fake);
+    fake.setDiagnostics(false);
+    fake.hear();
+    expect(await list(fake, token)).toEqual({ enabled: false, activations: [], nearMisses: [] });
+    const res = await fake.app.request("/api/settings", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const { settings } = SettingsResponse.parse(await res.json());
+    expect(settings.find((s) => s.key === WakeSettingKeys.diagnostics)?.value).toBe(false);
+  });
+
+  test("serves each clip as a 3 s, 16 kHz mono PCM16 WAV", async () => {
+    const fake = createFakeKiosk({ now: () => NOW });
+    const token = await login(fake);
+    const data = await list(fake, token);
+    for (const entry of [...data.activations, ...data.nearMisses]) {
+      const res = await command(fake, token, "getWakeWordActivationAudio", { id: entry.id });
       const body = commandResult(ActivationAudioData).parse(await res.json());
       if (!body.ok) throw new Error(body.error);
       const wav = Uint8Array.fromBase64(body.data.base64);
@@ -94,21 +132,27 @@ describe("fake Kiosk Satellite", () => {
   });
 
   test("an unknown clip id is a command failure", async () => {
-    const app = createFakeKiosk();
-    const res = await command(app, await login(app), "getWakeWordActivationAudio", { id: "1" });
+    const fake = createFakeKiosk();
+    const res = await command(fake, await login(fake), "getWakeWordActivationAudio", { id: "1" });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ ok: false, error: "no such clip" });
   });
 
   test("anything outside the read surface fails, writes included", async () => {
-    const app = createFakeKiosk();
-    const token = await login(app);
-    expect((await command(app, token, "stageCustomWakeModel", {})).status).toBe(404);
-    const patch = await app.request("/api/settings", {
+    const fake = createFakeKiosk();
+    const token = await login(fake);
+    expect((await command(fake, token, "stageCustomWakeModel", {})).status).toBe(404);
+    const patch = await fake.app.request("/api/settings", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}` },
       body: "{}",
     });
     expect(patch.status).toBe(404);
+  });
+
+  test("the in-process fetch can be taken offline", async () => {
+    const fake = createFakeKiosk();
+    fake.faults.offline = true;
+    expect(fake.fetch("http://fake/api/health")).rejects.toThrow(TypeError);
   });
 });

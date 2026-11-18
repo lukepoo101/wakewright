@@ -9,10 +9,13 @@ export const CLIP_SECONDS = 3;
 export type Signal =
   | { kind: "tone"; hz: number }
   | { kind: "chirp"; fromHz: number; toHz: number }
-  | { kind: "noise"; seed: number };
+  | { kind: "noise"; seed: number }
+  /** Syllable-like tone bursts over quiet noise, ending shortly before the clip ends. */
+  | { kind: "bursts"; seed: number; syllables: number };
 
 /** Mono PCM16 samples for one clip; amplitude is a fraction of full scale. */
 export function synthesize(signal: Signal, amplitude = 0.3): Int16Array {
+  if (signal.kind === "bursts") return bursts(signal.seed, signal.syllables, amplitude);
   const n = SAMPLE_RATE * CLIP_SECONDS;
   const out = new Int16Array(n);
   const random = mulberry32(signal.kind === "noise" ? signal.seed : 0);
@@ -31,6 +34,37 @@ export function synthesize(signal: Signal, amplitude = 0.3): Int16Array {
     // 50 ms fades at each end avoid clicks.
     const fade = Math.min(1, i / 800, (n - 1 - i) / 800);
     out[i] = Math.round(x * amplitude * fade * 32767);
+  }
+  return out;
+}
+
+// A few enveloped two-tone bursts, like syllables, ending 0.3–0.5 s before
+// the end of the clip (where a Kiosk Satellite clip has its wake word), on
+// a quiet noise floor. Amplitudes above 1 clip at full scale on purpose.
+function bursts(seed: number, syllables: number, amplitude: number): Int16Array {
+  const n = SAMPLE_RATE * CLIP_SECONDS;
+  const random = mulberry32(seed);
+  const signal = new Float64Array(n);
+  for (let i = 0; i < n; i++) signal[i] = (random() * 2 - 1) * 0.01;
+  const end = n - Math.round(SAMPLE_RATE * (0.3 + random() * 0.2));
+  const length = Math.round(SAMPLE_RATE * (0.12 + random() * 0.08));
+  const gap = Math.round(SAMPLE_RATE * 0.04);
+  let start = end - syllables * (length + gap);
+  for (let s = 0; s < syllables; s++, start += length + gap) {
+    const f1 = 180 + random() * 220;
+    const f2 = 700 + random() * 1600;
+    const loud = amplitude * (0.55 + random() * 0.45);
+    for (let i = 0; i < length; i++) {
+      const t = i / SAMPLE_RATE;
+      const envelope = Math.sin((Math.PI * i) / length) ** 2;
+      const x = Math.sin(2 * Math.PI * f1 * t) * 0.7 + Math.sin(2 * Math.PI * f2 * t) * 0.3;
+      const at = start + i;
+      if (at >= 0 && at < n) signal[at] = (signal[at] ?? 0) + x * envelope * loud;
+    }
+  }
+  const out = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = Math.round(Math.max(-1, Math.min(1, signal[i] ?? 0)) * 32767);
   }
   return out;
 }
