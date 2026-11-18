@@ -1,0 +1,32 @@
+# Reference Docker Compose file for Wakewright. See docs/getting-started.md.
+#
+# Before the first start, create the two secrets next to this file:
+#   mkdir -p secrets
+#   openssl rand -base64 32 > secrets/key            # encrypts stored device passwords
+#   printf '%s' 'a long admin password' > secrets/admin_password
+# Or delete the two WAKEWRIGHT__*_FILE lines and the secrets: the key is then
+# generated into the data volume and the web UI asks you to create the admin.
+name: wakewright
+services:
+  wakewright:
+    # `edge` is built from every merge to main. Pin a release tag once one exists.
+    image: ghcr.io/lukepoo101/wakewright:edge
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes: [wakewright-data:/data]
+    environment:
+      TZ: Europe/London
+      # The address you open in the browser; https:// marks cookies Secure.
+      WAKEWRIGHT__SERVER__PUBLIC_URL: http://wakewright.local:8080
+      WAKEWRIGHT__SECRET_KEY_FILE: /run/secrets/wakewright_key
+      WAKEWRIGHT__ADMIN__PASSWORD_FILE: /run/secrets/wakewright_admin
+    secrets: [wakewright_key, wakewright_admin]
+secrets:
+  wakewright_key: { file: ./secrets/key }
+  wakewright_admin: { file: ./secrets/admin_password }
+volumes:
+  wakewright-data: {}

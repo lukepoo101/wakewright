@@ -16,6 +16,9 @@ blob-report/
 # Audio never enters the repository: fixtures are generated in code.
 *.wav
 
+# Secrets for the reference Compose file.
+deploy/compose/secrets/
+
 .env
 .env.*
 !.env.example

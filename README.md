@@ -15,11 +15,20 @@ It works with [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite)
 devices over their HTTP API. Wakewright only reads from a device; it never
 changes its settings or installs anything on it.
 
-> **Status: pre-alpha.** Nothing here is usable yet. The repository holds
-> the foundation for v0.0.1: collect Kiosk Satellite clips, store them, and
-> browse and play them in a web UI. There is no stable release yet;
-> `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64) is built from
-> every merge to `main`, for testing only.
+> **Status: pre-alpha.** v0.0.1 collects Kiosk Satellite clips, stores
+> them, and lets you browse and play them in a web UI. There is no stable
+> release yet; `ghcr.io/lukepoo101/wakewright:edge` (amd64 and arm64) is
+> built from every merge to `main`, for testing.
+
+## Using it
+
+- [Getting started with Docker](docs/getting-started.md): `docker run`,
+  Docker Compose, Kubernetes, the port, volume and health checks.
+- [Configuration reference](docs/configuration.md): every environment
+  variable, including the admin password and secret key for GitOps.
+- [Kiosk Satellite devices](docs/kiosk-satellite.md): turning on wake word
+  diagnostics, adding a device, and what each problem means.
+- [Privacy](docs/privacy.md): what is kept, where, and for how long.
 
 ## How it fits together
 
@@ -59,7 +68,8 @@ More in [CONTRIBUTING.md](CONTRIBUTING.md),
 
 Clips are 3-second recordings from a room and can include anyone in it.
 Wakewright keeps all audio on your hardware, runs no servers of its own and
-sends no telemetry ([ADR 0007](docs/adr/0007-no-telemetry.md)).
+sends no telemetry ([ADR 0007](docs/adr/0007-no-telemetry.md)). More in
+[docs/privacy.md](docs/privacy.md).
 
 ## Licence
 
