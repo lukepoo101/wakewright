@@ -12,6 +12,9 @@ Instructions for AI coding agents working on Wakewright. Humans should read
 - `mise run e2e`: Playwright smoke test against the production build.
 - `mise run dev`: parent on :8080, rebuilt on change, plus fake devices on
   :23241/:23242 (password `dev`).
+- `mise run release <version>`: open the release pull request (maintainer
+  only; see [docs/RELEASING.md](docs/RELEASING.md)). Never edit versions or
+  `CHANGELOG.md` by hand in a feature pull request.
 
 Do not add `check` or `fmt` scripts to a `package.json`: `bun check` and
 `bun fmt` would run the script instead of the built-in tool.
