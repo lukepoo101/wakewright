@@ -9,10 +9,13 @@ import {
   clipEngines,
   clipNeighbours,
   clipSummary,
-  getClip,
+  getClipRow,
   listClips,
 } from "../db/clips.ts";
+import { getInstance } from "../db/judges.ts";
+import type { Judges } from "../judges.ts";
 import type { Judging } from "../judging.ts";
+import { confidence, dissent } from "../outcome.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
 // Collected clips: list with filters and paging, one clip with its
@@ -20,28 +23,48 @@ import { type ApiEnv, errorContent, newApi } from "./common.ts";
 // for the home screen. /api/v1/clips.
 
 const Kind = z.enum(["fired", "near_miss"]);
-const Agreement = z.enum(["waiting", "inconclusive", "disagree", "agree_yes", "agree_no"]);
+const Outcome = z.enum(["yes", "no", "uncertain", "not_enough", "waiting"]);
+const Settled = z.enum(["yes", "no", "uncertain", "not_enough"]);
 const Mismatch = z.enum(["false_wake", "missed_wake"]);
 
 /**
- * What the judges said, from each judge's latest result (ADR 0016):
- * agreement ignores abstentions; mismatch is set when the judges agree
- * against the device (it fired but they say no: a likely false wake; a
- * near miss they say yes to: a likely missed wake word).
+ * What the judges said, weighted (ADR 0019, src/outcome.ts): each counted
+ * judge's latest yes or no times its weight. mismatch is set when the
+ * outcome is against the device (it fired but the outcome is no: a likely
+ * false wake; a near miss the outcome says yes to: a likely missed wake word).
  */
 const ClipJudging = z
   .object({
-    agreement: Agreement,
+    outcome: Outcome,
+    /** While waiting: the outcome from the judges that have answered so far. */
+    provisional: Settled.nullable(),
+    /** -1 (all no) to +1 (all yes); null when no weight voted. */
+    score: z.number().nullable(),
+    /** 0 to 1: the share of the voting weight on the side the score leans to. */
+    confidence: z.number().nullable(),
+    yesWeight: z.number(),
+    noWeight: z.number(),
+    /** Counted judges that said yes, no, or could not tell. */
     yes: z.number().int(),
     no: z.number().int(),
     abstain: z.number().int(),
+    /** A counted judge voted against the outcome. */
+    dissent: z.boolean(),
     mismatch: Mismatch.nullable(),
   })
   .openapi("ClipJudging");
 
 const JudgeResult = z
   .object({
-    judge: z.string(),
+    judgeId: z.string(),
+    name: z.string(),
+    type: z.string(),
+    typeName: z.string(),
+    weight: z.number(),
+    /** counted; not_counted (weight 0); off; deleted. */
+    status: z.enum(["counted", "not_counted", "off", "deleted"]),
+    /** False: judged with earlier settings or an earlier version of its type. */
+    current: z.boolean(),
     version: z.string(),
     verdict: z.enum(["yes", "no", "abstain"]),
     score: z.number().nullable(),
@@ -56,9 +79,25 @@ const JudgeResult = z
 
 const PendingJudge = z
   .object({
-    judge: z.string(),
-    /** waiting: not judged yet; no_model: no worker has a model for this wake word. */
-    reason: z.enum(["waiting", "no_model"]),
+    judgeId: z.string(),
+    name: z.string(),
+    typeName: z.string(),
+    weight: z.number(),
+    /**
+     * waiting: not judged yet; rejudging: its settings or version changed;
+     * no_model: its type has no model for this wake word; failing: paused
+     * after a failure; limited: at its daily limit; no_worker: no worker can
+     * run it; not_counted: weight 0.
+     */
+    reason: z.enum([
+      "waiting",
+      "rejudging",
+      "no_model",
+      "failing",
+      "limited",
+      "no_worker",
+      "not_counted",
+    ]),
   })
   .openapi("PendingJudge");
 
@@ -117,8 +156,11 @@ const Filter = z.object({
   engine: z.string().max(64).optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
-  agreement: Agreement.optional(),
+  outcome: Outcome.optional(),
   mismatch: Mismatch.optional(),
+  dissent: z.enum(["1"]).optional().openapi({
+    description: "1: only clips where a counted judge voted against the outcome.",
+  }),
 });
 
 const ListQuery = Filter.extend({
@@ -229,10 +271,10 @@ const routes = {
 };
 
 export function clipRoutes(
-  deps: { db: Database; blobs: BlobStore; judging: Judging },
+  deps: { db: Database; blobs: BlobStore; judging: Judging; judges: Judges },
   guard: MiddlewareHandler<ApiEnv>,
 ) {
-  const { db, blobs, judging } = deps;
+  const { db, blobs, judging, judges } = deps;
   const notFound = { error: "not_found", message: "No such clip." } as const;
   const app = newApi();
   for (const path of ["/clips", "/clips/*"]) app.use(path, guard);
@@ -240,10 +282,12 @@ export function clipRoutes(
   return app
     .openapi(routes.list, (c) => {
       const q = c.req.valid("query");
-      const { rows, total } = listClips(db, toFilter(q), {
-        limit: q.pageSize,
-        offset: (q.page - 1) * q.pageSize,
-      });
+      const { rows, total } = listClips(
+        db,
+        toFilter(q),
+        { limit: q.pageSize, offset: (q.page - 1) * q.pageSize },
+        judging.context(),
+      );
       return c.json({ clips: rows.map(toClip), total, page: q.page, pageSize: q.pageSize }, 200);
     })
     .openapi(routes.summary, (c) => {
@@ -252,29 +296,78 @@ export function clipRoutes(
     })
     .openapi(routes.engines, (c) => c.json({ engines: clipEngines(db) }, 200))
     .openapi(routes.get, (c) => {
-      const row = getClip(db, c.req.valid("param").id);
-      if (!row) return c.json(notFound, 404);
-      const { newer, older } = clipNeighbours(db, row, toFilter(c.req.valid("query")));
-      const judged = judging.forClip(row.id) ?? { results: [], pending: [] };
-      const judges = {
-        results: judged.results.map((r) => ({
-          judge: r.judge,
-          version: r.version,
-          verdict: r.verdict,
-          score: r.score,
-          threshold: r.threshold,
-          transcript: r.transcript,
-          detail: r.detail,
-          durationMs: r.duration_ms,
-          worker: r.worker,
-          judgedAt: r.judged_at,
-        })),
-        pending: judged.pending,
+      const judged = judging.forClip(c.req.valid("param").id);
+      if (!judged) return c.json(notFound, 404);
+      const row = judged.clip;
+      const { newer, older } = clipNeighbours(
+        db,
+        row,
+        toFilter(c.req.valid("query")),
+        judging.context(),
+      );
+      const types = new Map(judges.types().map((t) => [t.id, t]));
+      const about = (id: string) => {
+        const i = getInstance(db, id);
+        return {
+          name: i?.name ?? id,
+          type: i?.type ?? id,
+          typeName: (i && types.get(i.type)?.name) ?? i?.type ?? id,
+          weight: i?.weight ?? 0,
+          instance: i,
+        };
       };
-      return c.json({ clip: toClip(row), newerId: newer, olderId: older, judges }, 200);
+      const results = judged.results
+        .map((r) => {
+          const a = about(r.instance_id);
+          const i = a.instance;
+          const status: "counted" | "not_counted" | "off" | "deleted" =
+            !i || i.deleted_at !== null
+              ? "deleted"
+              : !i.enabled
+                ? "off"
+                : i.weight > 0
+                  ? "counted"
+                  : "not_counted";
+          return {
+            judgeId: r.instance_id,
+            name: a.name,
+            type: r.type,
+            typeName: a.typeName,
+            weight: a.weight,
+            status,
+            current:
+              i !== null &&
+              r.fingerprint === i.fingerprint &&
+              r.version === (types.get(r.type)?.version ?? r.version),
+            version: r.version,
+            verdict: r.verdict,
+            score: r.score,
+            threshold: r.threshold,
+            transcript: r.transcript,
+            detail: r.detail,
+            durationMs: r.duration_ms,
+            worker: r.worker,
+            judgedAt: r.judged_at,
+          };
+        })
+        .sort((a, b) => order(a) - order(b) || b.weight - a.weight || a.name.localeCompare(b.name));
+      const pending = judged.pending.map((p) => {
+        const a = about(p.instance);
+        return {
+          judgeId: p.instance,
+          name: a.name,
+          typeName: a.typeName,
+          weight: a.weight,
+          reason: p.reason,
+        };
+      });
+      return c.json(
+        { clip: toClip(row), newerId: newer, olderId: older, judges: { results, pending } },
+        200,
+      );
     })
     .openapi(routes.audio, async (c) => {
-      const row = getClip(db, c.req.valid("param").id);
+      const row = getClipRow(db, c.req.valid("param").id);
       if (!row) return c.json(notFound, 404);
       const file = blobs.file(row.audio_sha256);
       const size = file.size;
@@ -290,7 +383,10 @@ export function clipRoutes(
       };
       if (c.req.valid("query").download) {
         const stamp = row.captured_at.replace(/[:.]/g, "-");
-        const name = `${row.device_name}-${stamp}.wav`.replace(/[^\w.-]+/g, "_");
+        const device = db
+          .query<{ name: string }, [string]>("SELECT name FROM devices WHERE id = ?")
+          .get(row.device_id);
+        const name = `${device?.name ?? "clip"}-${stamp}.wav`.replace(/[^\w.-]+/g, "_");
         headers["Content-Disposition"] = `attachment; filename="${name}"`;
       }
       if (c.req.header("If-None-Match") === etag) return c.body(null, 304, headers);
@@ -321,9 +417,15 @@ function toFilter(q: z.infer<typeof Filter>): ClipFilter {
     engine: q.engine,
     from: iso(q.from),
     to: iso(q.to),
-    agreement: q.agreement,
+    outcome: q.outcome,
     mismatch: q.mismatch,
+    dissent: q.dissent === "1",
   };
+}
+
+// Counted judges first, then those not counted, off, and deleted.
+function order(r: { status: "counted" | "not_counted" | "off" | "deleted" }): number {
+  return ["counted", "not_counted", "off", "deleted"].indexOf(r.status);
 }
 
 // Stored times are UTC with a Z; normalise offsets so text comparison holds.
@@ -387,10 +489,21 @@ function toClip(row: ClipListRow): z.infer<typeof Clip> {
     stopWord: meta.stop === true,
     sensitivity: row.sensitivity_json ? JSON.parse(row.sensitivity_json) : null,
     judging: {
-      agreement: row.agreement,
+      outcome: row.outcome,
+      provisional: row.provisional,
+      score: row.judge_score,
+      confidence: confidence({ yesWeight: row.yes_weight, noWeight: row.no_weight }),
+      yesWeight: row.yes_weight,
+      noWeight: row.no_weight,
       yes: row.votes_yes,
       no: row.votes_no,
       abstain: row.votes_abstain,
+      dissent: dissent({
+        outcome: row.outcome,
+        provisional: row.provisional,
+        yes: row.votes_yes,
+        no: row.votes_no,
+      }),
       mismatch: row.mismatch,
     },
   };

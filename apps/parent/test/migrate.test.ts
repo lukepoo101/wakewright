@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, schemaVersion } from "../src/db/db.ts";
 import { type Migration, migrate, migrations } from "../src/db/migrate.ts";
+import { EMPTY_FINGERPRINT, fingerprint } from "../src/judge-settings.ts";
 
 const migrationsDir = join(import.meta.dir, "../src/db/migrations");
 
 describe("migrations", () => {
+  test("the fingerprint 0005 writes is that of settings that change nothing", () => {
+    expect(fingerprint([], {})).toBe(EMPTY_FINGERPRINT);
+  });
+
   test("every .sql file is listed once, in order, numbered from 1", () => {
     const files = readdirSync(migrationsDir)
       .filter((f) => f.endsWith(".sql"))
@@ -130,6 +135,74 @@ describe("0002: clip settings and clipping", () => {
     ]);
     expect(db.query("SELECT count(*) AS n FROM workers").get()).toEqual({ n: 0 });
     expect(db.query("SELECT count(*) AS n FROM judge_leases").get()).toEqual({ n: 0 });
+  });
+
+  test("0005 makes the three judges instances, keeps every verdict current, and moves offers", () => {
+    const db = v1Database();
+    migrate(db, { list: migrations.slice(0, 4) });
+    const result = db.query(
+      `INSERT INTO judge_results (clip_id, judge, version, verdict, duration_ms, worker, judged_at)
+       VALUES (?, ?, ?, ?, 5, 'w', ?)`,
+    );
+    result.run("prompt", "stt", "parakeet+1", "yes", "2026-11-18T01:00:00Z");
+    result.run("prompt", "openwakeword", "v0.5.1+1", "no", "2026-11-18T01:00:01Z");
+    result.run("old-vs", "stt", "parakeet+0", "no", "2026-11-17T01:00:00Z");
+    result.run("old-vs", "someone-elses", "x1", "yes", "2026-11-17T01:00:00Z");
+    db.run(
+      `INSERT INTO workers (id, name, source, token_sha256, token_created_at, created_at,
+         updated_at, allowed_judges_json, offered_judges_json)
+       VALUES ('w1', 'w', 'ui', 'h', 't', 't', 't', '["stt"]',
+         '[{"name":"stt","version":"parakeet+1","wakeWords":null},
+           {"name":"openwakeword","version":"v0.5.1+1","wakeWords":["alexa"]}]')`,
+    );
+    migrate(db);
+    expect(
+      db.query("SELECT id, type, weight, fingerprint FROM judge_instances ORDER BY id").all(),
+    ).toEqual([
+      { id: "microwakeword", type: "microwakeword", weight: 0.3, fingerprint: EMPTY_FINGERPRINT },
+      { id: "openwakeword", type: "openwakeword", weight: 0.3, fingerprint: EMPTY_FINGERPRINT },
+      { id: "someone-elses", type: "someone-elses", weight: 0.3, fingerprint: EMPTY_FINGERPRINT },
+      { id: "stt", type: "stt", weight: 1, fingerprint: EMPTY_FINGERPRINT },
+    ]);
+    expect(
+      db
+        .query(
+          "SELECT clip_id, instance_id, version, verdict, fingerprint FROM judge_results ORDER BY clip_id, instance_id",
+        )
+        .all(),
+    ).toEqual([
+      expect.objectContaining({ clip_id: "old-vs", instance_id: "someone-elses", verdict: "yes" }),
+      expect.objectContaining({ clip_id: "old-vs", instance_id: "stt", version: "parakeet+0" }),
+      expect.objectContaining({ clip_id: "prompt", instance_id: "openwakeword", verdict: "no" }),
+      {
+        clip_id: "prompt",
+        instance_id: "stt",
+        version: "parakeet+1",
+        verdict: "yes",
+        fingerprint: EMPTY_FINGERPRINT,
+      },
+    ]);
+    // Each type's version is its latest result's, so those results stay current.
+    expect(db.query("SELECT id, version FROM judge_types ORDER BY id").all()).toEqual([
+      { id: "microwakeword", version: "" },
+      { id: "openwakeword", version: "v0.5.1+1" },
+      { id: "someone-elses", version: "x1" },
+      { id: "stt", version: "parakeet+1" },
+    ]);
+    const w = db
+      .query<{ a: string; o: string }, []>(
+        "SELECT allowed_judges_json AS a, offered_judges_json AS o FROM workers",
+      )
+      .get();
+    expect(w?.a).toBe('["stt"]');
+    expect(JSON.parse(w?.o ?? "")).toEqual([
+      { id: "stt", version: "parakeet+1", wakeWords: null },
+      { id: "openwakeword", version: "v0.5.1+1", wakeWords: ["alexa"] },
+    ]);
+    expect(db.query("SELECT margin, minimum FROM judging_rule").get()).toEqual({
+      margin: 0.5,
+      minimum: 1,
+    });
   });
 
   test("keeps only settings read close to the clip, each wake word once, and keeps every clip", () => {

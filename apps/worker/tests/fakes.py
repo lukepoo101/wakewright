@@ -16,8 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from wakewright_worker.audio import Clip, noise, write_wav
-from wakewright_worker.judges import JudgeResult
-from wakewright_worker.models import ModelFile
+from wakewright_worker.judges import JudgeResult, JudgeType, Kind, Settings, TemporaryFailure
 
 TOKEN = "test-token"
 
@@ -27,7 +26,9 @@ class FakeJob:
     id: str
     clip_id: str
     wake_word: str = "alexa"
-    judges: list[str] = field(default_factory=lambda: ["fake"])
+    # The judge types to run, each as one judge named "<type>-1"; or full
+    # judges as {"instance", "type", "settings"}.
+    judges: list[str | dict[str, Any]] = field(default_factory=lambda: ["fake"])
     lease_seconds: float = 120.0
 
 
@@ -146,9 +147,9 @@ class FakeParent:
                 if forced:
                     detail = {"error": "forced", "supported": {"min": 1, "max": 1}}
                     return self._reply(forced, detail)
-                if body.get("protocol") != 1:
-                    return self._reply(426, {"supported": {"min": 1, "max": 1}})
-                offered = {j["name"] for j in body["judges"]}
+                if body.get("protocol") != 2:
+                    return self._reply(426, {"supported": {"min": 2, "max": 2}})
+                offered = {t["id"] for t in body["types"]}
                 deadline = time.monotonic() + min(float(body["waitSeconds"]), 0.3)
                 with parent.lock:
                     while True:
@@ -158,7 +159,7 @@ class FakeParent:
                             for j in parent.queue
                             if j.id not in parent.results
                             and (j.id not in parent.leases or parent.leases[j.id] <= now)
-                            and offered & set(j.judges)
+                            and offered & {_judge(x)["type"] for x in j.judges}
                         ][: int(body["max"])]
                         left = deadline - time.monotonic()
                         if ready or left <= 0:
@@ -173,7 +174,9 @@ class FakeParent:
                                 "id": j.id,
                                 "clipId": j.clip_id,
                                 "wakeWord": j.wake_word,
-                                "judges": [n for n in j.judges if n in offered],
+                                "judges": [
+                                    _judge(x) for x in j.judges if _judge(x)["type"] in offered
+                                ],
                                 "leaseExpiresAt": expires.isoformat().replace("+00:00", "Z"),
                             }
                         )
@@ -204,8 +207,12 @@ class FakeParent:
             self.server = None
 
 
-class FakeJudge:
-    """A judge with no model: answers from a function of the clip."""
+def _judge(x: str | dict[str, Any]) -> dict[str, Any]:
+    return x if isinstance(x, dict) else {"instance": f"{x}-1", "type": x, "settings": {}}
+
+
+class FakeJudge(JudgeType):
+    """A judge type with no model: answers from a function of the clip."""
 
     def __init__(
         self,
@@ -215,19 +222,20 @@ class FakeJudge:
         *,
         answer: JudgeResult | None = None,
         crash: Exception | None = None,
+        fail: TemporaryFailure | None = None,
         prepare_failures: int = 0,
     ) -> None:
-        self.name = name
+        self.id = name
+        self.name = f"{name} judge"
+        self.kind: Kind = "wake_word_model" if wake_words is not None else "speech_to_text"
         self.version = version
         self.wake_words = wake_words
         self.answer = answer or JudgeResult("no", score=0.1, threshold=0.5)
         self.crash = crash
+        self.fail = fail
         self.prepare_failures = prepare_failures
         self.prepared = 0
-        self.seen: list[Clip] = []
-
-    def model_files(self) -> list[ModelFile]:
-        return []
+        self.seen: list[tuple[Clip, dict[str, Any]]] = []
 
     def prepare(self) -> None:
         if self.prepare_failures > 0:
@@ -235,8 +243,10 @@ class FakeJudge:
             raise RuntimeError("model download failed")
         self.prepared += 1
 
-    def judge(self, clip: Clip) -> JudgeResult:
-        self.seen.append(clip)
+    def judge(self, clip: Clip, settings: Settings) -> JudgeResult:
+        self.seen.append((clip, dict(settings)))
         if self.crash is not None:
             raise self.crash
+        if self.fail is not None:
+            raise self.fail
         return self.answer

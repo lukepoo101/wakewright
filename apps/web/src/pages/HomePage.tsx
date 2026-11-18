@@ -142,7 +142,7 @@ export function HomePage() {
 }
 
 // The workers and whether each is judging, what waits, and where the
-// judges and the device disagree, each count linking to the clips it counts.
+// outcome and the device disagree, each count linking to the clips it counts.
 function JudgingCard({ status, now }: { status: JudgingStatus; now: number }) {
   const workers = status.workers;
   const connected = workers.filter((w) => w.connected && w.enabled).length;
@@ -152,7 +152,10 @@ function JudgingCard({ status, now }: { status: JudgingStatus; now: number }) {
     <Card>
       <div className={styles.cardHead}>
         <h2>Judging</h2>
-        <Link to="/workers">{workers.length > 0 ? "Manage" : "Add a worker"}</Link>
+        <span className={styles.headLinks}>
+          <Link to="/judges">Judges</Link>
+          <Link to="/workers">{workers.length > 0 ? "Workers" : "Add a worker"}</Link>
+        </span>
       </div>
       {workers.length === 0 ? (
         <p className={styles.judgingNote}>
@@ -194,25 +197,36 @@ function JudgingCard({ status, now }: { status: JudgingStatus; now: number }) {
       {status.judged > 0 && (
         <ul className={styles.judgingLinks}>
           <li>
-            <Link to="/clips" search={{ judges: "disagree" }} className={styles.bigLink}>
-              <span className={styles.bigNumber}>{status.disagree.toLocaleString("en-GB")}</span>
-              <span className={styles.bigLabel}>
-                {status.disagree === 1 ? "disagreement" : "disagreements"}
-              </span>
+            <Link to="/clips" search={{ judges: "uncertain" }} className={styles.bigLink}>
+              <span className={styles.bigNumber}>{status.uncertain.toLocaleString("en-GB")}</span>
+              <span className={styles.bigLabel}>uncertain</span>
             </Link>
-            <span className={styles.judgingHint}>between the judges</span>
+            <span className={styles.judgingHint}>the weighted vote is too close to call</span>
           </li>
           <li>
             <Link to="/clips" search={{ judges: "false_wake" }}>
               {plural(status.falseWake, "likely false wake")}
             </Link>
-            <span className={styles.judgingHint}>the device woke up, the judges say no</span>
+            <span className={styles.judgingHint}>the device woke up, the outcome is no</span>
           </li>
           <li>
             <Link to="/clips" search={{ judges: "missed_wake" }}>
               {plural(status.missedWake, "likely missed wake word")}
             </Link>
-            <span className={styles.judgingHint}>a near miss the judges say yes to</span>
+            <span className={styles.judgingHint}>a near miss the outcome says yes to</span>
+          </li>
+          <li className={styles.outcomeLine}>
+            <Link to="/clips" search={{ judges: "yes" }}>
+              {status.yes.toLocaleString("en-GB")} yes
+            </Link>
+            {" · "}
+            <Link to="/clips" search={{ judges: "no" }}>
+              {status.no.toLocaleString("en-GB")} no
+            </Link>
+            {" · "}
+            <Link to="/clips" search={{ judges: "not_enough" }}>
+              {status.notEnough.toLocaleString("en-GB")} not enough evidence
+            </Link>
           </li>
         </ul>
       )}

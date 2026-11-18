@@ -1,5 +1,11 @@
 import type { Database } from "bun:sqlite";
-import type { OfferedJudge } from "./judging.ts";
+/** A judge type as a worker offers it: its id, version and wake words. */
+export interface OfferedType {
+  id: string;
+  version: string;
+  /** null: any wake word. */
+  wakeWords: string[] | null;
+}
 
 // Workers (migration 0004, ADR 0018): records the parent owns, each with
 // the SHA-256 of its own token, created in the UI or declared in
@@ -12,6 +18,7 @@ export interface WorkerRow {
   name: string;
   notes: string;
   enabled: number;
+  /** Judge type ids it may run; NULL: every type. */
   allowed_judges_json: string | null;
   source: WorkerSource;
   token_sha256: string;
@@ -131,14 +138,14 @@ export function workerTokenHashes(db: Database): { id: string; token_sha256: str
 export function recordReport(
   db: Database,
   id: string,
-  report: { name: string; version: string; judges: OfferedJudge[] },
+  report: { name: string; version: string; types: OfferedType[] },
   at: string,
 ): void {
   db.query(
     `UPDATE workers SET reported_name = ?1, reported_version = ?2, offered_judges_json = ?3,
        first_seen_at = coalesce(first_seen_at, ?4), last_seen_at = ?4
      WHERE id = ?5`,
-  ).run(report.name, report.version, JSON.stringify(report.judges), at, id);
+  ).run(report.name, report.version, JSON.stringify(report.types), at, id);
 }
 
 export function touchWorker(db: Database, id: string, at: string): void {

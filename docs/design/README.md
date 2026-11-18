@@ -8,7 +8,7 @@ are recorded as [ADRs](../adr/).
 
 - [Architecture](architecture.md): the parent, the workers and the pull
   protocol between them.
-- [Machine learning](machine-learning.md): judges, agreement, labelling,
+- [Machine learning](machine-learning.md): judges, the weighted outcome, labelling,
   datasets, training, offline evaluation, and the traps that come with a
   small home dataset.
 - [User experience](user-experience.md): principles and the main user
@@ -26,8 +26,8 @@ The loop it is built towards:
 
 1. **Collect** the short clips your satellites already record when the
    wake word fires or nearly fires.
-2. **Judge** each clip with several independent models, and show you the
-   clips they disagree on.
+2. **Judge** each clip with several independent models, weigh their votes,
+   and show you the clips they are uncertain about.
 3. **Label** clips, mostly automatically, with a person settling the hard
    cases.
 4. **Build datasets** from labelled clips and **train** candidate models.
@@ -66,15 +66,15 @@ Two product rules shape everything else:
 
 ## Roadmap
 
-| Stage                 | What it delivers                                                                                                                                                                          | Status         |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| Collect               | Parent on Bun/TypeScript: add Kiosk Satellite devices, collect clips with their device settings, browse and play them, pause                                                              | Built (v0.0.2) |
-| Judge                 | Python worker with three judges (openWakeWord, microWakeWord, CPU speech-to-text), counted without weights; a view of the clips they disagree on, and where they disagree with the device | In progress    |
-| Review                | A fast review screen where a person labels the clips the judges disagree on; storage view and clean-up tools                                                                              | Later          |
-| Label fusion          | Combining judges into calibrated labels so most clips label themselves, with a measured error rate                                                                                        | Later          |
-| Datasets and training | Reproducible dataset snapshots, a frozen benchmark, and training of candidate openWakeWord and microWakeWord models                                                                       | Later          |
-| Offline evaluation    | Candidates compared with the device's current model, with confidence intervals; the best one offered as a download with install instructions                                              | Later          |
-| Desktop worker        | The worker packaged as a Windows app, so a gaming PC's GPU can help                                                                                                                       | Later          |
+| Stage                 | What it delivers                                                                                                                                                                                                                  | Status         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Collect               | Parent on Bun/TypeScript: add Kiosk Satellite devices, collect clips with their device settings, browse and play them, pause                                                                                                      | Built (v0.0.2) |
+| Judge                 | Python worker with plugin judge types (openWakeWord, microWakeWord, CPU speech to text, cloud transcription APIs), configured and weighted on a Judges page; the uncertain clips, and where the outcome disagrees with the device | In progress    |
+| Review                | A fast review screen where a person labels the uncertain clips; storage view and clean-up tools                                                                                                                                   | Later          |
+| Label fusion          | Combining judges into calibrated labels so most clips label themselves, with a measured error rate                                                                                                                                | Later          |
+| Datasets and training | Reproducible dataset snapshots, a frozen benchmark, and training of candidate openWakeWord and microWakeWord models                                                                                                               | Later          |
+| Offline evaluation    | Candidates compared with the device's current model, with confidence intervals; the best one offered as a download with install instructions                                                                                      | Later          |
+| Desktop worker        | The worker packaged as a Windows app, so a gaming PC's GPU can help                                                                                                                                                               | Later          |
 
 Each stage is useful on its own. If the data shows a trained model cannot
 beat the device's own model, Wakewright remains a tool for collecting,

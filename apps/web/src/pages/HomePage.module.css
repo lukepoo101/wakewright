@@ -278,3 +278,14 @@
     gap: var(--space-3);
   }
 }
+
+.headLinks {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.judgingLinks .outcomeLine {
+  display: block;
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}

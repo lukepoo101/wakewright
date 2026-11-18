@@ -7,19 +7,18 @@ every time. int8 is a quarter of the download (650 MB against 2.5 GB) but
 no faster on a desktop CPU. The clip is transcribed as it is; adding
 silence around it made Parakeet drop or invent words.
 
-The verdict is yes when the transcript, lowercased with punctuation
-removed, contains the wake word as whole words.
+The verdict comes from the transcript as for every speech-to-text type
+(speech.py).
 """
 
 from __future__ import annotations
-
-import re
 
 import onnx_asr
 from onnx_asr.adapters import TextResultsAsrAdapter
 
 from wakewright_worker.audio import SAMPLE_RATE, Clip
-from wakewright_worker.judges import JudgeResult, normalise_wake_word
+from wakewright_worker.judges import Settings
+from wakewright_worker.judges.speech import SpeechToTextJudge
 from wakewright_worker.models import ModelCache, ModelFile
 
 REPO = "istupakov/parakeet-tdt-0.6b-v2-onnx"
@@ -55,24 +54,15 @@ FILES = [
 ]
 
 
-def words(text: str) -> list[str]:
-    """Lowercase words with punctuation removed ("Alexa's" -> "alexas")."""
-    return re.sub(r"[^a-z0-9\s]", "", text.lower().replace("-", " ")).split()
-
-
-def contains(transcript: str, wake_word: str) -> bool:
-    heard = words(transcript)
-    wanted = normalise_wake_word(wake_word).split()
-    if not wanted:
-        return False
-    n = len(wanted)
-    return any(heard[i : i + n] == wanted for i in range(len(heard) - n + 1))
-
-
-class SpeechToTextJudge:
-    name = "stt"
+class ParakeetJudge(SpeechToTextJudge):
+    # "stt" for history: verdicts before judge types were recorded under it.
+    id = "stt"
+    name = "Parakeet speech to text"
+    description = (
+        "NVIDIA Parakeet TDT 0.6B v2 (English) on this worker's CPU. Clips stay on the worker. "
+        "Needs about 2.5 GB of downloads and 3 GB of memory."
+    )
     version = f"parakeet-tdt-0.6b-v2@{REVISION[:7]}+{LOGIC}"
-    wake_words: frozenset[str] | None = None
 
     def __init__(self, cache: ModelCache) -> None:
         self._cache = cache
@@ -85,11 +75,7 @@ class SpeechToTextJudge:
         paths = self._cache.ensure_all(FILES)
         self._model = onnx_asr.load_model(MODEL, paths[0].parent)
 
-    def judge(self, clip: Clip) -> JudgeResult:
+    def transcribe(self, clip: Clip, settings: Settings) -> str:
         if self._model is None:
             raise RuntimeError("stt judge used before prepare()")
-        transcript = str(self._model.recognize(clip.float32(), sample_rate=SAMPLE_RATE)).strip()
-        return JudgeResult(
-            verdict="yes" if contains(transcript, clip.wake_word) else "no",
-            transcript=transcript,
-        )
+        return str(self._model.recognize(clip.float32(), sample_rate=SAMPLE_RATE))

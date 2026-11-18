@@ -4,7 +4,7 @@ import type { DeclaredWorker } from "../src/config.ts";
 import { decodePairing, encodePairing } from "../src/pairing.ts";
 import {
   generateToken,
-  routedJudges,
+  routedTypes,
   sameDigest,
   TOKEN_PREFIX,
   tokenSha256,
@@ -15,10 +15,23 @@ import { testApi } from "./helpers.ts";
 // workers applied from configuration, routing at claim time, and what
 // pausing, deleting and new tokens do at once.
 
-const OWW = { name: "openwakeword", version: "alexa_v0.1+1", wakeWords: ["alexa"] };
-const STT = { name: "stt", version: "tiny+1", wakeWords: null };
+const OWW = {
+  id: "openwakeword",
+  version: "alexa_v0.1+1",
+  name: "openWakeWord",
+  kind: "wake_word_model",
+  wakeWords: ["alexa"],
+};
+const STT = {
+  id: "stt",
+  version: "tiny+1",
+  name: "Speech",
+  kind: "speech_to_text",
+  wakeWords: null,
+};
 
-type Job = { id: string; judges: string[] };
+type Job = { id: string; judges: { instance: string }[] };
+const ids = (job: Job) => job.judges.map((j) => j.instance);
 
 function declared(name: string, extra: Partial<DeclaredWorker> = {}): DeclaredWorker {
   return {
@@ -54,9 +67,9 @@ async function parent(declaredWorkers: DeclaredWorker[] = [], mode?: "none") {
 
   async function claim(token: string, judges: object[] = [OWW, STT], waitSeconds = 0) {
     const res = await worker(token, "/jobs/claim", {
-      protocol: 1,
+      protocol: 2,
       worker: { name: "a-host", version: "0.2.0" },
-      judges,
+      types: judges,
       max: 32,
       waitSeconds,
     });
@@ -70,13 +83,15 @@ async function parent(declaredWorkers: DeclaredWorker[] = [], mode?: "none") {
     return worker(token, `/jobs/${job.id}/results`, {
       results: [
         {
-          judge: "stt",
+          instance: "stt",
+          type: "stt",
           version: STT.version,
           verdict: "yes",
           score: null,
           threshold: null,
           transcript: "alexa",
           detail: null,
+          failure: null,
           durationMs: 5,
         },
       ],
@@ -99,7 +114,7 @@ async function parent(declaredWorkers: DeclaredWorker[] = [], mode?: "none") {
         allowedJudges: string[] | null;
         connected: boolean;
         token: { hint: string | null };
-        reported: { name: string | null; judges: object[] };
+        reported: { name: string | null; types: object[] };
       }[];
       judges: string[];
       publicUrl: string | null;
@@ -233,11 +248,11 @@ describe("workers created in the UI", () => {
 
 describe("routing", () => {
   test("a worker gets only the judges it offers and is allowed to run", () => {
-    expect(routedJudges([OWW, STT], { enabled: true, allowedJudges: null })).toEqual([OWW, STT]);
-    expect(routedJudges([OWW, STT], { enabled: true, allowedJudges: ["stt", "mww"] })).toEqual([
+    expect(routedTypes([OWW, STT], { enabled: true, allowedJudges: null })).toEqual([OWW, STT]);
+    expect(routedTypes([OWW, STT], { enabled: true, allowedJudges: ["stt", "mww"] })).toEqual([
       STT,
     ]);
-    expect(routedJudges([OWW, STT], { enabled: false, allowedJudges: null })).toEqual([]);
+    expect(routedTypes([OWW, STT], { enabled: false, allowedJudges: null })).toEqual([]);
   });
 
   test("at claim time, and the waiting count follows what workers may run", async () => {
@@ -245,7 +260,7 @@ describe("routing", () => {
     const { body } = await t.create({ name: "Laptop", allowedJudges: ["openwakeword"] });
     const { jobs } = await t.claim(body.token);
     expect(jobs).toHaveLength(4);
-    for (const job of jobs) expect(job.judges).toEqual(["openwakeword"]);
+    for (const job of jobs) expect(ids(job)).toEqual(["openwakeword"]);
     // Only openWakeWord may run; the speech-to-text the worker offers waits for nobody.
     expect((await (await t.request("/api/v1/judging")).json()).waiting).toBe(4);
   });
@@ -308,7 +323,7 @@ describe("revocation", () => {
           (await (await t.request(`/api/v1/clips/${c.id}`)).json()).judges.results,
       ),
     );
-    expect(results.flat()).toEqual([expect.objectContaining({ judge: "stt", worker: "Laptop" })]);
+    expect(results.flat()).toEqual([expect.objectContaining({ judgeId: "stt", worker: "Laptop" })]);
     expect(
       (await t.request(`/api/v1/workers/${body.worker.id}`, { method: "DELETE" })).status,
     ).toBe(404);
@@ -369,7 +384,7 @@ describe("declared workers", () => {
     }
     // The configured token is accepted as given, with no prefix.
     const { jobs } = await t.claim(declared("cluster-worker").token);
-    for (const job of jobs) expect(job.judges).toEqual(["stt"]);
+    for (const job of jobs) expect(ids(job)).toEqual(["stt"]);
   });
 
   test("configuration is applied on every start", async () => {

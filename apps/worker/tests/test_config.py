@@ -14,7 +14,7 @@ def test_defaults() -> None:
     cfg = load(BASE | {"XDG_CACHE_HOME": "/xdg"})
     assert cfg.parent_url == "http://parent:8080"
     assert cfg.token == "t"
-    assert cfg.judges == ("openwakeword", "microwakeword", "stt")
+    assert cfg.judges == ("openwakeword", "microwakeword", "stt", "openai-compatible", "elevenlabs")
     assert cfg.batch == 8
     assert cfg.wait_seconds == 25
     assert cfg.name  # the hostname

@@ -15,13 +15,13 @@ import {
   TextField,
 } from "../components/ui.tsx";
 import { ago, useNow } from "../format.ts";
-import { judgeName } from "../judging.ts";
 import {
   allowedText,
   pairingString,
   startCommands,
   suggestedAddress,
   validAddress,
+  typeName,
   type Worker,
   type WorkerList,
   workerState,
@@ -142,7 +142,7 @@ function WorkerCard({
 
   const state = workerState(w);
   const titleId = `worker-${w.id}`;
-  const offered = w.reported.judges;
+  const offered = w.reported.types;
   const allowed = (name: string) => w.allowedJudges === null || w.allowedJudges.includes(name);
 
   return (
@@ -213,17 +213,17 @@ function WorkerCard({
             )}
           </dd>
           <dt>May run</dt>
-          <dd>{allowedText(w)}</dd>
+          <dd>{allowedText(w, data.typeNames)}</dd>
           <dt>Offers</dt>
           <dd>
             {offered.length === 0
               ? "nothing yet"
               : offered.map((j, i) => (
-                  <span key={j.name}>
+                  <span key={j.id}>
                     {i > 0 && ", "}
-                    <span className={allowed(j.name) ? "" : styles.notAllowed}>
-                      {judgeName(j.name)}
-                      {!allowed(j.name) && " (not allowed)"}
+                    <span className={allowed(j.id) ? "" : styles.notAllowed}>
+                      {typeName(data.typeNames, j.id)}
+                      {!allowed(j.id) && " (not allowed)"}
                     </span>
                   </span>
                 ))}
@@ -357,7 +357,7 @@ function WorkerForm({
 
   const missing = {
     name: !name.trim() ? "Give the worker a name." : undefined,
-    judges: !all && chosen.length === 0 ? "Choose at least one judge." : undefined,
+    judges: !all && chosen.length === 0 ? "Choose at least one judge type." : undefined,
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -390,10 +390,10 @@ function WorkerForm({
         <span className={styles.hint}>Optional: where it runs, who looks after it.</span>
       </div>
       <fieldset className={styles.judgesField}>
-        <legend>Judges it may run</legend>
+        <legend>Judge types it may run</legend>
         <label className={styles.choice}>
           <input type="radio" name="all" checked={all} onChange={() => setAll(true)} />
-          All judges, including ones it offers later
+          All judge types, including ones it offers later
         </label>
         <label className={styles.choice}>
           <input type="radio" name="all" checked={!all} onChange={() => setAll(false)} />
@@ -410,12 +410,15 @@ function WorkerForm({
                   setChosen((c) => (e.target.checked ? [...c, j] : c.filter((x) => x !== j)))
                 }
               />
-              {judgeName(j)}
+              {typeName(data.typeNames, j)}
             </label>
           ))}
         </div>
         {touched && missing.judges && <span className={styles.error}>{missing.judges}</span>}
-        <span className={styles.hint}>It is sent clips only for judges it offers and may run.</span>
+        <span className={styles.hint}>
+          It is sent clips only for judges whose type it offers and may run. A judge that sends
+          clips to a cloud service runs only on workers allowed its type.
+        </span>
       </fieldset>
       {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
       <div className={styles.formButtons}>

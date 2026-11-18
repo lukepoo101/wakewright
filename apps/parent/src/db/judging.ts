@@ -1,26 +1,24 @@
 import type { Database } from "bun:sqlite";
+import { EPSILON, type Outcome, type OutcomeRule } from "../outcome.ts";
 
-// Judge results and leases (migrations 0003 and 0004, ADR 0016). Workers
-// are in workers.ts.
+// Judge results, leases and the weighted outcome in SQL (migrations 0003 to
+// 0005, ADRs 0016 and 0019). Judges and their types are in judges.ts,
+// workers in workers.ts.
 //
 // There is no stored job queue. A clip needs judging while it lacks a
-// result for a (judge, version) that a worker offers and that covers the
-// clip's wake word; a lease on the clip stops a second worker taking it
-// until the first answers or the lease expires.
-
-/** A judge as a worker offers it. `wakeWords` null means any wake word. */
-export interface OfferedJudge {
-  name: string;
-  version: string;
-  wakeWords: string[] | null;
-}
+// current result (same type version and settings fingerprint) from a judge
+// that a worker may run and that covers the clip's wake word; a lease on
+// the clip stops a second worker taking it until the first answers or the
+// lease expires.
 
 export type Verdict = "yes" | "no" | "abstain";
 
 export interface JudgeResultRow {
   clip_id: string;
-  judge: string;
+  instance_id: string;
+  type: string;
   version: string;
+  fingerprint: string;
   verdict: Verdict;
   score: number | null;
   threshold: number | null;
@@ -41,124 +39,200 @@ export interface LeaseRow {
   expires_at: string;
 }
 
-// Each judge's latest result on each clip (the most recent, whatever its
-// version), counted per clip. Abstentions are counted but are not votes.
-const VOTES = `
-  SELECT clip_id,
-    sum(verdict = 'yes') AS yes, sum(verdict = 'no') AS no, sum(verdict = 'abstain') AS abstain
-  FROM (
-    SELECT clip_id, verdict, row_number() OVER (
-      PARTITION BY clip_id, judge ORDER BY judged_at DESC, version DESC) AS rn
-    FROM judge_results)
-  WHERE rn = 1
-  GROUP BY clip_id`;
+/** One judge in a lease: what the worker must answer for. */
+export interface LeasedJudge {
+  instance: string;
+  type: string;
+  version: string;
+  fingerprint: string;
+  /** Set when the lease carries a test run from the Judges page. */
+  test: string | null;
+}
 
 /**
- * Agreement, from the votes of the clip's `v` row (NULL when no judge has
- * answered): waiting, inconclusive (fewer than two votes), disagree, or
- * agree_yes / agree_no (at least two votes, all the same).
+ * A judge a worker can run now, at the version it offers: the claim's
+ * candidates, and what a clip waits for in the outcome.
  */
-const AGREEMENT = `CASE
-    WHEN v.clip_id IS NULL THEN 'waiting'
-    WHEN v.yes + v.no < 2 THEN 'inconclusive'
-    WHEN v.yes > 0 AND v.no > 0 THEN 'disagree'
-    WHEN v.yes > 0 THEN 'agree_yes'
-    ELSE 'agree_no' END`;
+export interface Runnable {
+  instance: string;
+  type: string;
+  version: string;
+  fingerprint: string;
+  /** Lower-case wake words its type has a model for; null for any. */
+  wakeWords: string[] | null;
+}
+
+export type Mismatch = "false_wake" | "missed_wake";
+
+/** What the outcome SQL needs besides the tables: the rule and what can run now. */
+export interface OutcomeContext {
+  rule: OutcomeRule;
+  runnable: readonly Runnable[];
+}
+
+function runnableJson(runnable: readonly Runnable[]): string {
+  return JSON.stringify(
+    runnable.map((r) => ({ i: r.instance, v: r.version, f: r.fingerprint, w: r.wakeWords })),
+  );
+}
+
+// A runnable judge (`r`, a row of json_each($runnable)) that covers clip c's
+// wake word and has no current result on it.
+const RUNNABLE_MISSING = `
+  (json_extract(r.value, '$.w') IS NULL
+    OR EXISTS (SELECT 1 FROM json_each(json_extract(r.value, '$.w')) w
+               WHERE w.value = lower(c.wake_word)))
+  AND NOT EXISTS (
+    SELECT 1 FROM judge_results x
+    WHERE x.clip_id = c.id AND x.instance_id = json_extract(r.value, '$.i')
+      AND x.version = json_extract(r.value, '$.v')
+      AND x.fingerprint = json_extract(r.value, '$.f'))`;
+
+// Each counted judge's latest result on each clip (whatever its version or
+// fingerprint), summed per clip. Counted: not deleted, enabled, weight > 0.
+const VOTES = `
+  SELECT l.clip_id,
+    sum(CASE WHEN l.verdict = 'yes' THEN i.weight ELSE 0 END) AS yes_w,
+    sum(CASE WHEN l.verdict = 'no' THEN i.weight ELSE 0 END) AS no_w,
+    sum(l.verdict = 'yes') AS yes_n, sum(l.verdict = 'no') AS no_n,
+    sum(l.verdict = 'abstain') AS abstain_n, count(*) AS answered
+  FROM (
+    SELECT clip_id, instance_id, verdict, row_number() OVER (
+      PARTITION BY clip_id, instance_id ORDER BY judged_at DESC, version DESC) AS rn
+    FROM judge_results) l
+  JOIN judge_instances i ON i.id = l.instance_id
+  WHERE l.rn = 1 AND i.deleted_at IS NULL AND i.enabled = 1 AND i.weight > 0
+  GROUP BY l.clip_id`;
 
 /**
  * Every clip with its device's name and its judging columns: votes_yes,
- * votes_no, votes_abstain, agreement and mismatch (the judges agree against
- * the device: 'false_wake' when it fired, 'missed_wake' on a near miss).
- * Use as `FROM ${CLIPS_WITH_JUDGING}`; the alias is `c`.
+ * votes_no, votes_abstain (counted judges), yes_weight, no_weight, score,
+ * outcome, provisional, dissent and mismatch, computed with the rule in
+ * src/outcome.ts. Use as `FROM ${sql}` with `params`; the alias is `c`.
  */
-export const CLIPS_WITH_JUDGING = `(
-  SELECT x.*, CASE
-      WHEN x.capture_reason = 'fired' AND x.agreement = 'agree_no' THEN 'false_wake'
-      WHEN x.capture_reason = 'near_miss' AND x.agreement = 'agree_yes' THEN 'missed_wake'
+export function clipsWithJudging(ctx: OutcomeContext): {
+  sql: string;
+  params: Record<string, string | number>;
+} {
+  const sql = `(
+  SELECT z.*,
+    CASE WHEN z.outcome = 'waiting' THEN z.provisional ELSE z.outcome END AS leaning,
+    CASE
+      WHEN z.capture_reason = 'fired' AND z.outcome = 'no' THEN 'false_wake'
+      WHEN z.capture_reason = 'near_miss' AND z.outcome = 'yes' THEN 'missed_wake'
     END AS mismatch
   FROM (
-    SELECT c.*, d.name AS device_name, (d.removed_at IS NOT NULL) AS device_removed,
-      coalesce(v.yes, 0) AS votes_yes, coalesce(v.no, 0) AS votes_no,
-      coalesce(v.abstain, 0) AS votes_abstain, ${AGREEMENT} AS agreement
-    FROM clips c
-    JOIN devices d ON d.id = c.device_id
-    LEFT JOIN (${VOTES}) v ON v.clip_id = c.id
-  ) x
+    SELECT y.*,
+      CASE WHEN y.waiting = 1 OR y.answered = 0 THEN 'waiting' ELSE y.settled END AS outcome,
+      CASE WHEN y.answered = 0 THEN NULL ELSE y.settled END AS provisional
+    FROM (
+      SELECT x.*,
+        CASE
+          WHEN x.judge_score IS NULL OR x.yes_weight + x.no_weight < $minimum - ${EPSILON} THEN 'not_enough'
+          WHEN x.judge_score >= $margin - ${EPSILON} THEN 'yes'
+          WHEN x.judge_score <= -$margin + ${EPSILON} THEN 'no'
+          ELSE 'uncertain' END AS settled
+      FROM (
+        SELECT c.*, d.name AS device_name, (d.removed_at IS NOT NULL) AS device_removed,
+          coalesce(v.yes_n, 0) AS votes_yes, coalesce(v.no_n, 0) AS votes_no,
+          coalesce(v.abstain_n, 0) AS votes_abstain, coalesce(v.answered, 0) AS answered,
+          coalesce(v.yes_w, 0) AS yes_weight, coalesce(v.no_w, 0) AS no_weight,
+          CASE WHEN coalesce(v.yes_w, 0) + coalesce(v.no_w, 0) > 0
+            THEN max(-1.0, min(1.0, (v.yes_w - v.no_w) / (v.yes_w + v.no_w))) END AS judge_score,
+          EXISTS (SELECT 1 FROM json_each($runnable) r WHERE ${RUNNABLE_MISSING}) AS waiting
+        FROM clips c
+        JOIN devices d ON d.id = c.device_id
+        LEFT JOIN (${VOTES}) v ON v.clip_id = c.id
+      ) x
+    ) y
+  ) z
 ) c`;
-
-type Params = Record<string, string | number | null>;
-
-export type Agreement = "waiting" | "inconclusive" | "disagree" | "agree_yes" | "agree_no";
-export type Mismatch = "false_wake" | "missed_wake";
-
-// The offered judges as a VALUES table with bound parameters, for the
-// queries below. Wake words are compared in lower case.
-function offeredTable(offered: readonly OfferedJudge[]): {
-  sql: string;
-  params: Record<string, string | null>;
-} {
-  const params: Record<string, string | null> = {};
-  const rows = offered.map((j, i) => {
-    params[`n${i}`] = j.name;
-    params[`v${i}`] = j.version;
-    params[`w${i}`] =
-      j.wakeWords === null ? null : JSON.stringify(j.wakeWords.map((w) => w.toLowerCase()));
-    return `($n${i}, $v${i}, $w${i})`;
-  });
-  return { sql: `offered(name, version, words) AS (VALUES ${rows.join(", ")})`, params };
+  return {
+    sql,
+    params: {
+      margin: ctx.rule.margin,
+      minimum: ctx.rule.minimum,
+      runnable: runnableJson(ctx.runnable.filter((r) => r.instance)),
+    },
+  };
 }
 
-// Offered judges that cover the clip's wake word and have no result on it.
-const MISSING = `
-  FROM clips c
-  JOIN offered o ON o.words IS NULL
-    OR EXISTS (SELECT 1 FROM json_each(o.words) w WHERE w.value = lower(c.wake_word))
-  WHERE NOT EXISTS (
-    SELECT 1 FROM judge_results r
-    WHERE r.clip_id = c.id AND r.judge = o.name AND r.version = o.version)`;
+/** The columns `clipsWithJudging` adds to a clip. */
+export interface JudgingColumns {
+  device_name: string;
+  device_removed: number;
+  votes_yes: number;
+  votes_no: number;
+  votes_abstain: number;
+  answered: number;
+  yes_weight: number;
+  no_weight: number;
+  /** The judges' score, -1 to +1 (`score` is the device's). */
+  judge_score: number | null;
+  waiting: number;
+  settled: Exclude<Outcome, "waiting">;
+  outcome: Outcome;
+  provisional: Exclude<Outcome, "waiting"> | null;
+  /** The outcome, or while waiting the provisional one. */
+  leaning: Exclude<Outcome, "waiting"> | null;
+  mismatch: Mismatch | null;
+}
+
+/** SQL for "a counted judge voted against the outcome" on the `c` columns. */
+export const DISSENT = `((c.leaning = 'yes' AND c.votes_no > 0) OR (c.leaning = 'no' AND c.votes_yes > 0))`;
+
+type Params = Record<string, string | number | null>;
 
 export interface Work {
   clipId: string;
   wakeWord: string;
-  judges: { name: string; version: string }[];
+  judges: Runnable[];
 }
 
 /**
- * Up to `limit` clips, newest first, that need any of the offered judges
+ * Up to `limit` clips, newest first, that need any of the runnable judges
  * and are not leased at `now`, each with the judges it needs.
  */
 export function findWork(
   db: Database,
-  offered: readonly OfferedJudge[],
+  runnable: readonly Runnable[],
   now: string,
   limit: number,
 ): Work[] {
-  if (offered.length === 0 || limit < 1) return [];
-  const t = offeredTable(offered);
+  if (runnable.length === 0 || limit < 1) return [];
+  const byInstance = new Map(runnable.map((r) => [r.instance, r]));
   return db
     .query<{ clip_id: string; wake_word: string; judges: string }, Params>(
-      `WITH ${t.sql}
-       SELECT c.id AS clip_id, c.wake_word,
-         json_group_array(json_object('name', o.name, 'version', o.version)) AS judges
-       ${MISSING}
+      `SELECT c.id AS clip_id, c.wake_word,
+         json_group_array(json_extract(r.value, '$.i')) AS judges
+       FROM clips c, json_each($runnable) r
+       WHERE ${RUNNABLE_MISSING}
          AND NOT EXISTS (
            SELECT 1 FROM judge_leases l WHERE l.clip_id = c.id AND l.expires_at > $now)
        GROUP BY c.id
        ORDER BY c.captured_at DESC, c.id DESC
        LIMIT $limit`,
     )
-    .all({ ...t.params, now, limit })
-    .map((r) => ({ clipId: r.clip_id, wakeWord: r.wake_word, judges: JSON.parse(r.judges) }));
+    .all({ runnable: runnableJson(runnable), now, limit })
+    .map((r) => ({
+      clipId: r.clip_id,
+      wakeWord: r.wake_word,
+      judges: (JSON.parse(r.judges) as string[])
+        .map((id) => byInstance.get(id))
+        .filter((j): j is Runnable => j !== undefined),
+    }));
 }
 
-/** Clips that still need any of the offered judges, leased or not. */
-export function countWaiting(db: Database, offered: readonly OfferedJudge[]): number {
-  if (offered.length === 0) return 0;
-  const t = offeredTable(offered);
+/** Clips that still need any of the runnable judges, leased or not. */
+export function countWaiting(db: Database, runnable: readonly Runnable[]): number {
+  if (runnable.length === 0) return 0;
   return (
     db
-      .query<{ n: number }, Params>(`WITH ${t.sql} SELECT count(DISTINCT c.id) AS n ${MISSING}`)
-      .get(t.params)?.n ?? 0
+      .query<{ n: number }, Params>(
+        `SELECT count(*) AS n FROM clips c
+         WHERE EXISTS (SELECT 1 FROM json_each($runnable) r WHERE ${RUNNABLE_MISSING})`,
+      )
+      .get({ runnable: runnableJson(runnable) })?.n ?? 0
   );
 }
 
@@ -189,6 +263,23 @@ export function getLease(db: Database, id: string): LeaseRow | null {
   return db.query<LeaseRow, [string]>("SELECT * FROM judge_leases WHERE id = ?").get(id);
 }
 
+export function deleteLease(db: Database, id: string): void {
+  db.query("DELETE FROM judge_leases WHERE id = ?").run(id);
+}
+
+/** How many unexpired leases include each judge, for the daily limit. */
+export function leasedCounts(db: Database, now: string): Map<string, number> {
+  const rows = db
+    .query<{ instance: string; n: number }, [string]>(
+      `SELECT json_extract(j.value, '$.instance') AS instance, count(*) AS n
+       FROM judge_leases l, json_each(l.judges_json) j
+       WHERE l.expires_at > ?
+       GROUP BY instance`,
+    )
+    .all(now);
+  return new Map(rows.map((r) => [r.instance, r.n]));
+}
+
 /** The earliest expiry among leases still running at `now`, if any. */
 export function nextLeaseExpiry(db: Database, now: string): string | null {
   return (
@@ -200,63 +291,72 @@ export function nextLeaseExpiry(db: Database, now: string): string | null {
   );
 }
 
-/** Stores a job's results and ends its lease, in one transaction. */
-export function recordResults(db: Database, leaseId: string, rows: JudgeResultRow[]): void {
-  db.transaction(() => {
-    const insert = db.query(
-      `INSERT INTO judge_results (clip_id, judge, version, verdict, score, threshold, transcript,
-         detail, duration_ms, worker, judged_at)
-       VALUES ($clip_id, $judge, $version, $verdict, $score, $threshold, $transcript,
-         $detail, $duration_ms, $worker, $judged_at)
-       ON CONFLICT (clip_id, judge, version) DO UPDATE SET
-         verdict = excluded.verdict, score = excluded.score, threshold = excluded.threshold,
-         transcript = excluded.transcript, detail = excluded.detail,
-         duration_ms = excluded.duration_ms, worker = excluded.worker,
-         judged_at = excluded.judged_at`,
-    );
-    for (const row of rows) insert.run({ ...row });
-    db.query("DELETE FROM judge_leases WHERE id = ?").run(leaseId);
-  })();
+/** Stores one result (a newer run at the same version and fingerprint replaces it). */
+export function insertResult(db: Database, row: JudgeResultRow): void {
+  db.query(
+    `INSERT INTO judge_results (clip_id, instance_id, type, version, fingerprint, verdict, score,
+       threshold, transcript, detail, duration_ms, worker, judged_at)
+     VALUES ($clip_id, $instance_id, $type, $version, $fingerprint, $verdict, $score, $threshold,
+       $transcript, $detail, $duration_ms, $worker, $judged_at)
+     ON CONFLICT (clip_id, instance_id, version, fingerprint) DO UPDATE SET
+       verdict = excluded.verdict, score = excluded.score, threshold = excluded.threshold,
+       transcript = excluded.transcript, detail = excluded.detail,
+       duration_ms = excluded.duration_ms, worker = excluded.worker,
+       judged_at = excluded.judged_at`,
+  ).run({ ...row });
 }
 
-/** Each judge's latest result on a clip, by judge name. */
+/** Each judge's latest result on a clip, deleted judges included. */
 export function latestResults(db: Database, clipId: string): JudgeResultRow[] {
   return db
     .query<JudgeResultRow, [string]>(
-      `SELECT clip_id, judge, version, verdict, score, threshold, transcript, detail,
-         duration_ms, worker, judged_at
+      `SELECT clip_id, instance_id, type, version, fingerprint, verdict, score, threshold,
+         transcript, detail, duration_ms, worker, judged_at
        FROM (
          SELECT r.*, row_number() OVER (
-           PARTITION BY judge ORDER BY judged_at DESC, version DESC) AS rn
+           PARTITION BY instance_id ORDER BY judged_at DESC, version DESC) AS rn
          FROM judge_results r WHERE clip_id = ?)
-       WHERE rn = 1
-       ORDER BY judge`,
+       WHERE rn = 1`,
     )
     .all(clipId);
 }
 
 export interface JudgingCounts {
+  /** Clips with an outcome other than waiting. */
   judged: number;
-  disagree: number;
+  yes: number;
+  no: number;
+  uncertain: number;
+  notEnough: number;
+  waiting: number;
+  /** A counted judge voted against the clip's outcome. */
+  dissent: number;
   falseWake: number;
   missedWake: number;
 }
 
-export function judgingCounts(db: Database): JudgingCounts {
+export function judgingCounts(db: Database, ctx: OutcomeContext): JudgingCounts {
+  const t = clipsWithJudging(ctx);
   const row = db
-    .query<
-      { judged: number | null; disagree: number | null; fw: number | null; mw: number | null },
-      []
-    >(
-      `SELECT sum(agreement <> 'waiting') AS judged, sum(agreement = 'disagree') AS disagree,
+    .query<Record<string, number | null>, Params>(
+      `SELECT sum(outcome <> 'waiting') AS judged, sum(outcome = 'yes') AS yes,
+         sum(outcome = 'no') AS no, sum(outcome = 'uncertain') AS uncertain,
+         sum(outcome = 'not_enough') AS not_enough, sum(outcome = 'waiting') AS waiting,
+         sum(${DISSENT}) AS dissent,
          sum(mismatch = 'false_wake') AS fw, sum(mismatch = 'missed_wake') AS mw
-       FROM ${CLIPS_WITH_JUDGING}`,
+       FROM ${t.sql}`,
     )
-    .get();
+    .get(t.params);
+  const n = (k: string) => row?.[k] ?? 0;
   return {
-    judged: row?.judged ?? 0,
-    disagree: row?.disagree ?? 0,
-    falseWake: row?.fw ?? 0,
-    missedWake: row?.mw ?? 0,
+    judged: n("judged"),
+    yes: n("yes"),
+    no: n("no"),
+    uncertain: n("uncertain"),
+    notEnough: n("not_enough"),
+    waiting: n("waiting"),
+    dissent: n("dissent"),
+    falseWake: n("fw"),
+    missedWake: n("mw"),
   };
 }

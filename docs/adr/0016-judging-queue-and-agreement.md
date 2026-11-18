@@ -1,7 +1,10 @@
 # 0016 Judging: a derived queue with leases, a shared token, unweighted agreement
 
 - Status: accepted; the shared token is superseded by
-  [ADR 0018](0018-workers-with-their-own-tokens.md) (a token per worker)
+  [ADR 0018](0018-workers-with-their-own-tokens.md) (a token per worker),
+  and unweighted agreement and the judges' wire shape by
+  [ADR 0019](0019-configurable-weighted-judges.md) (weighted outcome,
+  protocol 2)
 - Date: 2026-11-18
 
 ## Context

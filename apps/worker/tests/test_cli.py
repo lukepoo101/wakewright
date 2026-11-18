@@ -54,7 +54,7 @@ def test_run_once_against_the_fake_parent(monkeypatch: pytest.MonkeyPatch, tmp_p
         }.items():
             monkeypatch.setenv(f"WAKEWRIGHT_WORKER__{key}", value)
         assert cli.main(["run", "--once"]) == 0
-        assert parent.results["j1"][0]["judge"] == "fake"
+        assert parent.results["j1"][0]["type"] == "fake"
     finally:
         parent.shutdown()
 
@@ -73,7 +73,7 @@ def test_run_once_with_a_pairing_argument(monkeypatch: pytest.MonkeyPatch, tmp_p
         data = json.dumps({"url": parent.url, "token": TOKEN}).encode()
         pairing = "wakewright-pair:1:" + base64.urlsafe_b64encode(data).decode().rstrip("=")
         assert cli.main(["run", "--once", "--pairing", pairing]) == 0
-        assert parent.results["j1"][0]["judge"] == "fake"
+        assert parent.results["j1"][0]["type"] == "fake"
     finally:
         parent.shutdown()
 

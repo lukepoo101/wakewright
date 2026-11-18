@@ -25,7 +25,14 @@ from pathlib import Path
 from pymicro_wakeword import MicroWakeWord, MicroWakeWordFeatures
 
 from wakewright_worker.audio import SAMPLE_RATE, Clip
-from wakewright_worker.judges import JudgeResult, no_model, normalise_wake_word
+from wakewright_worker.judges import (
+    JudgeResult,
+    JudgeType,
+    Kind,
+    Settings,
+    no_model,
+    normalise_wake_word,
+)
 from wakewright_worker.models import ModelCache, ModelFile
 
 # esphome/micro-wake-word-models, models/v2, at this commit (2026-10-01).
@@ -92,10 +99,16 @@ WAKE_WORDS: dict[str, tuple[ModelFile, ModelFile]] = {
 }
 
 
-class MicroWakeWordJudge:
-    name = "microwakeword"
+class MicroWakeWordJudge(JudgeType):
+    id = "microwakeword"
+    name = "microWakeWord"
+    kind: Kind = "wake_word_model"
+    description = (
+        "ESPHome's microWakeWord models (alexa, hey jarvis, hey mycroft, okay nabu) on this "
+        "worker, with each model's own cut-off."
+    )
     version = f"v2@{COMMIT[:7]}+{LOGIC}"
-    wake_words: frozenset[str] = frozenset(WAKE_WORDS)
+    wake_words: frozenset[str] | None = frozenset(WAKE_WORDS)
 
     def __init__(self, cache: ModelCache) -> None:
         self._cache = cache
@@ -119,13 +132,13 @@ class MicroWakeWordJudge:
             models[word] = MicroWakeWord.from_config(manifest_path)
         self._models = models
 
-    def judge(self, clip: Clip) -> JudgeResult:
+    def judge(self, clip: Clip, settings: Settings) -> JudgeResult:
         word = normalise_wake_word(clip.wake_word)
         model = self._models.get(word)
         if model is None:
             if not self._models:
                 raise RuntimeError("microwakeword judge used before prepare()")
-            return no_model(self.name, clip.wake_word, self.wake_words)
+            return no_model(self.name, clip.wake_word, frozenset(WAKE_WORDS))
         model.reset()
         features = MicroWakeWordFeatures()
         best = 0.0

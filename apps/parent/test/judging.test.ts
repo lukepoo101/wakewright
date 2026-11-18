@@ -17,12 +17,27 @@ const DECLARED = ["w1", "w2", "w3"].map((name) => ({
 }));
 const START = Date.parse("2026-11-18T12:00:00Z");
 
-const OWW = { name: "openwakeword", version: "alexa_v0.1+1", wakeWords: ["alexa"] };
-const MWW = { name: "microwakeword", version: "v2+1", wakeWords: ["alexa", "okay_nabu"] };
-const STT = { name: "stt", version: "tiny+1", wakeWords: null };
+const offer = (id: string, version: string, wakeWords: string[] | null, extra = {}) => ({
+  id,
+  version,
+  name: id,
+  kind: wakeWords === null ? "speech_to_text" : "wake_word_model",
+  wakeWords,
+  ...extra,
+});
+const OWW = offer("openwakeword", "alexa_v0.1+1", ["alexa"]);
+const MWW = offer("microwakeword", "v2+1", ["alexa", "okay_nabu"]);
+const STT = offer("stt", "tiny+1", null);
 const ALL = [OWW, MWW, STT];
 
-type Job = { id: string; clipId: string; wakeWord: string; judges: string[] };
+type Job = {
+  id: string;
+  clipId: string;
+  wakeWord: string;
+  judges: { instance: string; type: string; settings: Record<string, unknown> }[];
+};
+/** The judge (instance) ids a job asks for. */
+const judgeIds = (job: Job | undefined) => job?.judges.map((j) => j.instance);
 
 // A parent with three declared workers (w1, w2, w3) and two fake devices
 // collected: the kitchen
@@ -77,9 +92,9 @@ async function judged(options: { declared?: typeof DECLARED; realTime?: boolean 
     const res = await worker("/jobs/claim", {
       token: tokenOf(extra.name ?? "w1"),
       json: {
-        protocol: 1,
+        protocol: 2,
         worker: { name: `host-of-${extra.name ?? "w1"}`, version: "0.0.3" },
-        judges,
+        types: judges,
         max: extra.max ?? 8,
         waitSeconds: extra.waitSeconds ?? 0,
       },
@@ -88,11 +103,17 @@ async function judged(options: { declared?: typeof DECLARED; realTime?: boolean 
     return (await res.json()).jobs;
   }
 
-  function result(judge: { name: string; version: string }, verdict: string, extra = {}) {
+  function result(
+    judge: { id: string; version: string },
+    verdict: string,
+    extra: Record<string, unknown> = {},
+  ) {
     return {
-      judge: judge.name,
+      instance: (extra.instance as string | undefined) ?? judge.id,
+      type: judge.id,
       version: judge.version,
       verdict,
+      failure: null,
       score: null,
       threshold: null,
       transcript: null,
@@ -120,13 +141,13 @@ async function judged(options: { declared?: typeof DECLARED; realTime?: boolean 
     };
   }
 
-  return { ...t, clock, kitchen, worker, claim, result, answer, clips, identity };
+  return { ...t, clock, kitchen, lounge, worker, claim, result, answer, clips, identity };
 }
 
 describe("worker API: access", () => {
   test("with no workers, every token is refused", async () => {
     const t = await judged({ declared: [] });
-    const res = await t.worker("/jobs/claim", { json: { protocol: 1 } });
+    const res = await t.worker("/jobs/claim", { json: { protocol: 2 } });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: "unauthenticated" });
     const status = await (await t.request("/api/v1/judging")).json();
@@ -135,7 +156,7 @@ describe("worker API: access", () => {
 
   test("needs the token, and a user session is not enough", async () => {
     const t = await judged();
-    const body = { protocol: 1, worker: { name: "w", version: "1" }, judges: [STT] };
+    const body = { protocol: 2, worker: { name: "w", version: "1" }, types: [STT] };
     for (const token of [null, "wrong-token-of-some-length", `${TOKEN}x`, TOKEN.slice(0, -1)]) {
       const res = await t.worker("/jobs/claim", { json: body, token });
       expect(res.status).toBe(401);
@@ -152,7 +173,7 @@ describe("worker API: access", () => {
     const res = await t.api.request("http://localhost/api/worker/v1/jobs/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ protocol: 1, worker: { name: "w", version: "1" }, judges: [STT] }),
+      body: JSON.stringify({ protocol: 2, worker: { name: "w", version: "1" }, types: [STT] }),
     });
     expect(res.status).toBe(401);
   });
@@ -168,16 +189,20 @@ describe("worker API: access", () => {
   test("an unsupported protocol answers 426 with the supported range", async () => {
     const t = await judged();
     for (const json of [
-      { protocol: 2, worker: { name: "w", version: "1" }, judges: [STT] },
+      // A 0.2 worker: protocol 1, with judges rather than types.
+      {
+        protocol: 1,
+        worker: { name: "w", version: "0.2.0" },
+        judges: [{ name: "stt", version: "x", wakeWords: null }],
+      },
       { protocol: 0 },
       { protocol: 99, whatever: "a newer shape" },
     ]) {
       const res = await t.worker("/jobs/claim", { json });
       expect(res.status).toBe(426);
-      expect(await res.json()).toMatchObject({
-        error: "unsupported_protocol",
-        supported: { min: 1, max: 1 },
-      });
+      const body = await res.json();
+      expect(body).toMatchObject({ error: "unsupported_protocol", supported: { min: 2, max: 2 } });
+      expect(body.message).toContain("same release");
     }
     expect((await t.worker("/jobs/claim", { json: { judges: [] } })).status).toBe(400);
   });
@@ -185,7 +210,7 @@ describe("worker API: access", () => {
   test("rejects a judge offered twice", async () => {
     const t = await judged();
     const res = await t.worker("/jobs/claim", {
-      json: { protocol: 1, worker: { name: "w", version: "1" }, judges: [STT, STT] },
+      json: { protocol: 2, worker: { name: "w", version: "1" }, types: [STT, STT] },
     });
     expect(res.status).toBe(400);
   });
@@ -200,11 +225,12 @@ describe("worker API: claims and leases", () => {
     expect(jobs.map((j) => j.clipId)).toEqual(clips.map((c) => c.id));
     for (const job of jobs) {
       // openWakeWord has no model for okay_nabu, so it is not asked.
-      expect(job.judges).toEqual(
+      expect(judgeIds(job)?.sort()).toEqual(
         job.wakeWord === "alexa"
-          ? ["openwakeword", "microwakeword", "stt"]
+          ? ["microwakeword", "openwakeword", "stt"]
           : ["microwakeword", "stt"],
       );
+      for (const j of job.judges) expect(j.settings).toEqual({});
     }
     const audio = await t.worker(`/clips/${jobs[0]?.clipId}/audio`);
     expect(audio.status).toBe(200);
@@ -251,7 +277,7 @@ describe("worker API: claims and leases", () => {
     // A new version of one judge needs the clip again, for that judge only.
     t.clock.now += LEASE_MS + 1;
     const newer = await t.claim([OWW, MWW, { ...STT, version: "tiny+2" }], { max: 32 });
-    expect(newer.find((j) => j.clipId === job.clipId)?.judges).toEqual(["stt"]);
+    expect(judgeIds(newer.find((j) => j.clipId === job.clipId))).toEqual(["stt"]);
   });
 
   test("refuses results for a judge the job did not ask for", async () => {
@@ -261,6 +287,15 @@ describe("worker API: claims and leases", () => {
     expect((await t.answer(job, [t.result({ ...STT, version: "other" }, "yes")])).status).toBe(400);
     expect((await t.answer(job, [t.result(STT, "yes"), t.result(STT, "no")])).status).toBe(400);
     expect((await t.answer(job, [t.result(STT, "maybe")])).status).toBe(400);
+    // A failure needs its reason, and only a failure may have one.
+    expect((await t.answer(job, [t.result(STT, "failed")])).status).toBe(400);
+    expect(
+      (
+        await t.answer(job, [
+          t.result(STT, "yes", { failure: { reason: "auth", retryAfterSeconds: null } }),
+        ])
+      ).status,
+    ).toBe(400);
     expect(
       (await t.worker("/jobs/nope/results", { json: { results: [t.result(STT, "yes")] } })).status,
     ).toBe(409);
@@ -297,11 +332,14 @@ describe("worker API: long poll", () => {
     const judging = new Judging({
       db: t.db,
       log: (await import("./helpers.ts")).quietLog,
+      judges: t.judges,
       leaseMs: 200,
     });
     const request = {
       worker: { name: "host", version: "1" },
-      judges: [STT],
+      types: [
+        { ...STT, kind: "speech_to_text" as const, description: "", external: false, settings: [] },
+      ],
       max: 32,
       waitSeconds: 0,
     };
@@ -318,7 +356,9 @@ describe("worker API: long poll", () => {
     const controller = new AbortController();
     const request = {
       worker: { name: "host", version: "1" },
-      judges: [STT],
+      types: [
+        { ...STT, kind: "speech_to_text" as const, description: "", external: false, settings: [] },
+      ],
       max: 8,
       waitSeconds: 30,
     };
@@ -338,8 +378,8 @@ describe("worker API: long poll", () => {
   });
 });
 
-describe("agreement", () => {
-  // Answers every clip with the verdicts given for openWakeWord,
+describe("weighted outcome", () => {
+  // Answers every alexa clip with the verdicts given for openWakeWord,
   // microWakeWord and speech to text, newest clip first (undefined: no result).
   async function answerAll(
     t: Awaited<ReturnType<typeof judged>>,
@@ -357,27 +397,34 @@ describe("agreement", () => {
     return alexa.map((j) => j.clipId) as [string, string, string, string, ...string[]];
   }
 
-  test("counts each judge's latest vote, ignoring abstentions", async () => {
+  test("weighs each judge's latest vote: speech to text 1.0, the wake word models 0.3", async () => {
     const t = await judged();
     const ids = await answerAll(t, [
       ["yes", "yes", "yes"],
       ["no", "no", "abstain"],
       ["yes", "no", "yes"],
-      ["abstain", "abstain", "yes"],
+      ["no", "no", "yes"],
     ]);
     const byId = new Map((await t.clips()).clips.map((c) => [c.id, c]));
     const judging = ids.map((id) => byId.get(id)?.judging);
-    expect(judging[0]).toMatchObject({ agreement: "agree_yes", yes: 3, no: 0, abstain: 0 });
-    expect(judging[1]).toMatchObject({ agreement: "agree_no", yes: 0, no: 2, abstain: 1 });
-    expect(judging[2]).toMatchObject({ agreement: "disagree", yes: 2, no: 1 });
-    expect(judging[3]).toMatchObject({ agreement: "inconclusive", yes: 1, abstain: 2 });
-    // The lounge's clips have no results.
+    expect(judging[0]).toMatchObject({ outcome: "yes", score: 1, confidence: 1, yes: 3 });
+    // 0.6 of weight voted: less than the minimum of 1.
+    expect(judging[1]).toMatchObject({ outcome: "not_enough", yes: 0, no: 2, abstain: 1 });
+    // (1.3 - 0.3) / 1.6 = 0.625: yes, with one judge dissenting.
+    expect(judging[2]).toMatchObject({ outcome: "yes", dissent: true });
+    expect(judging[2]?.score).toBeCloseTo(0.625);
+    // (1 - 0.6) / 1.6 = 0.25: under the margin of 0.5.
+    expect(judging[3]).toMatchObject({ outcome: "uncertain", dissent: false });
+    expect(judging[3]?.score).toBeCloseTo(0.25);
+    expect(judging[3]?.confidence).toBeCloseTo(0.625);
+    // The lounge's clips have no results yet.
     const lounge = (await t.clips()).clips.filter((c) => !ids.includes(c.id));
-    for (const c of lounge)
-      expect(c.judging).toMatchObject({ agreement: "waiting", mismatch: null });
+    for (const c of lounge) {
+      expect(c.judging).toMatchObject({ outcome: "waiting", mismatch: null, score: null });
+    }
   });
 
-  test("filters by agreement and by disagreement with the device", async () => {
+  test("filters by outcome, dissent and disagreement with the device", async () => {
     const t = await judged();
     const { clips } = await t.clips();
     const kinds = new Map(clips.map((c) => [c.id, c.kind]));
@@ -387,28 +434,35 @@ describe("agreement", () => {
       ["yes", "no", "yes"],
       ["no", "no", "yes"],
     ]);
-    const disagree = await t.clips("&agreement=disagree");
-    expect(disagree.clips.map((c) => c.id).sort()).toEqual([ids[2], ids[3]].sort());
-    expect((await t.clips("&agreement=waiting")).total).toBe(4);
+    expect((await t.clips("&outcome=uncertain")).clips.map((c) => c.id)).toEqual([ids[3]]);
+    expect((await t.clips("&dissent=1")).clips.map((c) => c.id)).toEqual([ids[2]]);
+    expect((await t.clips("&outcome=waiting")).total).toBe(4);
 
     const falseWake = (await t.clips("&mismatch=false_wake")).clips.map((c) => c.id);
     const missed = (await t.clips("&mismatch=missed_wake")).clips.map((c) => c.id);
     expect(falseWake).toEqual(kinds.get(ids[1]) === "fired" ? [ids[1]] : []);
-    expect(missed).toEqual(kinds.get(ids[0]) === "near_miss" ? [ids[0]] : []);
-    expect(falseWake.length + missed.length).toBeGreaterThan(0);
+    expect(missed.sort()).toEqual(
+      [ids[0], ids[2]].filter((id) => kinds.get(id) === "near_miss").sort(),
+    );
 
     // A filtered clip steps only through clips under the same filter.
-    const one = await (await t.request(`/api/v1/clips/${ids[2]}?agreement=disagree`)).json();
-    expect([one.newerId, one.olderId]).toContain(ids[3]);
-    expect((await t.request("/api/v1/clips?agreement=maybe")).status).toBe(400);
+    const one = await (await t.request(`/api/v1/clips/${ids[0]}?outcome=yes`)).json();
+    expect([one.newerId, one.olderId]).toContain(ids[2]);
+    expect((await t.request("/api/v1/clips?outcome=maybe")).status).toBe(400);
 
     const status = await (await t.request("/api/v1/judging")).json();
     expect(status).toMatchObject({
       judged: 4,
-      disagree: 2,
+      yes: 2,
+      no: 1,
+      uncertain: 1,
+      notEnough: 0,
+      pending: 4,
+      dissent: 1,
       falseWake: falseWake.length,
       missedWake: missed.length,
       waiting: 4,
+      rule: { margin: 0.5, minimum: 1 },
     });
     expect(
       status.workers.map((w: { name: string; connected: boolean }) => [w.name, w.connected]),
@@ -419,35 +473,76 @@ describe("agreement", () => {
     ]);
   });
 
+  test("a weight or the rule changes outcomes at once, with nothing judged again", async () => {
+    const t = await judged();
+    const [id] = await answerAll(t, [["yes", "yes", "no"]]);
+    const outcome = async () =>
+      (await (await t.request(`/api/v1/clips/${id}`)).json()).clip.judging;
+    // (0.6 - 1) / 1.6 = -0.25: uncertain.
+    expect((await outcome()).outcome).toBe("uncertain");
+    const patch = (json: object) => t.request("/api/v1/judges/stt", { method: "PATCH", json });
+    expect((await patch({ weight: 0.2 })).status).toBe(200);
+    // 0.8 of weight voted: below the minimum of 1.
+    expect((await outcome()).outcome).toBe("not_enough");
+    const rule = await t.request("/api/v1/judging/rule", {
+      method: "PUT",
+      json: { margin: 0.5, minimum: 0.5 },
+    });
+    expect(rule.status).toBe(200);
+    // (0.6 - 0.2) / 0.8 = 0.5: yes, at the margin, with one judge dissenting.
+    expect(await outcome()).toMatchObject({ outcome: "yes", dissent: true });
+    // Weight 0: shown, not counted.
+    expect((await patch({ weight: 0 })).status).toBe(200);
+    expect(await outcome()).toMatchObject({ outcome: "yes", dissent: false, score: 1 });
+    // Nothing was handed out again for that clip.
+    t.clock.now += LEASE_MS + 1;
+    const again = await t.claim(ALL, { max: 32 });
+    expect(again.some((j) => j.clipId === id)).toBe(false);
+    // Turned off, a judge does not count either.
+    await t.request("/api/v1/judges/openwakeword", { method: "PATCH", json: { enabled: false } });
+    // Only microWakeWord (0.3) is left: below the minimum of 0.5.
+    expect(await outcome()).toMatchObject({ outcome: "not_enough", yes: 1 });
+  });
+
   test("a newer version's result replaces the older one in the vote", async () => {
     const t = await judged();
     const [id] = await answerAll(t, [["yes", "yes", "no"]]);
-    expect((await t.clips(`&agreement=disagree`)).clips.map((c) => c.id)).toEqual([id]);
+    expect((await t.clips("&outcome=uncertain")).clips.map((c) => c.id)).toEqual([id]);
     t.clock.now += LEASE_MS + 1;
     const stt2 = { ...STT, version: "tiny+2" };
     const job = (await t.claim([OWW, MWW, stt2], { max: 32 })).find((j) => j.clipId === id) as Job;
+    // While it waits for the new version, the old vote still counts, provisionally.
+    const waiting = await (await t.request(`/api/v1/clips/${id}`)).json();
+    expect(waiting.clip.judging).toMatchObject({ outcome: "waiting", provisional: "uncertain" });
+    expect(waiting.judges.pending).toMatchObject([{ judgeId: "stt", reason: "rejudging" }]);
     expect((await t.answer(job, [t.result(stt2, "yes", { transcript: "alexa" })])).status).toBe(
       204,
     );
     const clip = await (await t.request(`/api/v1/clips/${id}`)).json();
-    expect(clip.clip.judging).toMatchObject({ agreement: "agree_yes", yes: 3 });
-    expect(clip.judges.results.find((r: { judge: string }) => r.judge === "stt")).toMatchObject({
-      version: "tiny+2",
-      verdict: "yes",
-      transcript: "alexa",
-      worker: "w1",
-    });
+    expect(clip.clip.judging).toMatchObject({ outcome: "yes", yes: 3, confidence: 1 });
+    expect(clip.judges.results.find((r: { judgeId: string }) => r.judgeId === "stt")).toMatchObject(
+      {
+        name: "Speech to text",
+        weight: 1,
+        status: "counted",
+        current: true,
+        version: "tiny+2",
+        verdict: "yes",
+        transcript: "alexa",
+        worker: "w1",
+      },
+    );
   });
 
   test("the clip page lists judges that have not answered, and why", async () => {
     const t = await judged();
     await t.claim(ALL, { max: 32 });
     const { clips } = await t.clips();
-    const lounge = clips.find((c) => c.judging.agreement === "waiting") as { id: string };
+    const lounge = clips.find((c) => c.judging.outcome === "waiting") as { id: string };
     const detail = await (await t.request(`/api/v1/clips/${lounge.id}`)).json();
     expect(detail.judges.results).toEqual([]);
     const pending = Object.fromEntries(
-      detail.judges.pending.map((p: { judge: string; reason: string }) => [p.judge, p.reason]),
+      detail.judges.pending.map((p: { judgeId: string; reason: string }) => [p.judgeId, p.reason]),
     );
     expect(detail.clip.wakeWord).toBe("okay_nabu");
     expect(pending).toEqual({ microwakeword: "waiting", openwakeword: "no_model", stt: "waiting" });
@@ -466,7 +561,11 @@ describe("agreement", () => {
     expect((await (await t.request("/api/v1/judging")).json()).workers[0]).toMatchObject({
       name: "w1",
       connected: false,
-      reported: { name: "host-of-w1", version: "0.0.3", judges: [OWW] },
+      reported: {
+        name: "host-of-w1",
+        version: "0.0.3",
+        types: [{ id: OWW.id, version: OWW.version, wakeWords: OWW.wakeWords }],
+      },
     });
   });
 });

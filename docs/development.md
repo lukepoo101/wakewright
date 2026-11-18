@@ -32,8 +32,10 @@ first reports vsWakeWord scores (threshold 10.5, some over twice that), the
 second microWakeWord probabilities (0–1), so both score scales show. The
 parent declares one worker, `dev-worker`, with the token
 `dev-worker-token-not-secret`; the fake worker runs as it and judges each
-clip within a second of it arriving, with verdicts that cover agreement,
-disagreement and abstention ([architecture](architecture.md#the-fake-worker)).
+clip within a second of it arriving, with verdicts that cover every
+outcome ([architecture](architecture.md#the-fake-worker)). Add a judge of
+the fake OpenAI-compatible type on the Judges page to try a cloud judge
+without a key.
 Create more workers on the Workers page.
 
 `mise run check` runs three groups, which CI runs as separate jobs.

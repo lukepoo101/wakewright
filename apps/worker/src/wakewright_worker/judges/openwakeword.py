@@ -25,7 +25,14 @@ import numpy.typing as npt
 import onnxruntime as ort
 
 from wakewright_worker.audio import Clip
-from wakewright_worker.judges import JudgeResult, no_model, normalise_wake_word
+from wakewright_worker.judges import (
+    JudgeResult,
+    JudgeType,
+    Kind,
+    Settings,
+    no_model,
+    normalise_wake_word,
+)
 from wakewright_worker.models import ModelCache, ModelFile
 
 RELEASE = "v0.5.1"
@@ -87,10 +94,16 @@ def _session(path: str) -> ort.InferenceSession:
     return ort.InferenceSession(path, options, providers=["CPUExecutionProvider"])
 
 
-class OpenWakeWordJudge:
-    name = "openwakeword"
+class OpenWakeWordJudge(JudgeType):
+    id = "openwakeword"
+    name = "openWakeWord"
+    kind: Kind = "wake_word_model"
+    description = (
+        "openWakeWord's pretrained models (alexa, hey jarvis, hey mycroft, hey rhasspy) on this "
+        "worker. Verdict yes at a score of 0.5 or more."
+    )
     version = f"{RELEASE}+{LOGIC}"
-    wake_words: frozenset[str] = frozenset(WAKE_WORDS)
+    wake_words: frozenset[str] | None = frozenset(WAKE_WORDS)
 
     def __init__(self, cache: ModelCache) -> None:
         self._cache = cache
@@ -109,13 +122,13 @@ class OpenWakeWordJudge:
             word: _session(str(path)) for word, path in zip(WAKE_WORDS, paths[2:], strict=True)
         }
 
-    def judge(self, clip: Clip) -> JudgeResult:
+    def judge(self, clip: Clip, settings: Settings) -> JudgeResult:
         word = normalise_wake_word(clip.wake_word)
         model = self._models.get(word)
         if model is None:
             if not self._models:
                 raise RuntimeError("openwakeword judge used before prepare()")
-            return no_model(self.name, clip.wake_word, self.wake_words)
+            return no_model(self.name, clip.wake_word, frozenset(WAKE_WORDS))
         score = self.score(clip.samples, model)
         return JudgeResult(
             verdict="yes" if score >= THRESHOLD else "no",

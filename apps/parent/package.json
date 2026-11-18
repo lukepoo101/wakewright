@@ -8,7 +8,8 @@
     ".": "./src/api/index.ts",
     "./kiosk/shapes": "./src/kiosk/shapes.ts",
     "./clipping-rule": "./src/clipping-rule.ts",
-    "./pairing": "./src/pairing.ts"
+    "./pairing": "./src/pairing.ts",
+    "./outcome": "./src/outcome.ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "1.6.3",

@@ -8,6 +8,7 @@ import m0001 from "./migrations/0001_init.sql" with { type: "text" };
 import m0002 from "./migrations/0002_clip_settings_and_clipping.sql" with { type: "text" };
 import m0003 from "./migrations/0003_judging.sql" with { type: "text" };
 import m0004 from "./migrations/0004_managed_workers.sql" with { type: "text" };
+import m0005 from "./migrations/0005_judge_instances.sql" with { type: "text" };
 
 export interface Migration {
   version: number;
@@ -20,6 +21,7 @@ export const migrations: readonly Migration[] = [
   { version: 2, name: "0002_clip_settings_and_clipping", sql: m0002 },
   { version: 3, name: "0003_judging", sql: m0003 },
   { version: 4, name: "0004_managed_workers", sql: m0004 },
+  { version: 5, name: "0005_judge_instances", sql: m0005 },
 ];
 
 export interface MigrateResult {

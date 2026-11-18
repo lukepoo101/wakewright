@@ -15,10 +15,11 @@ import pytest
 from fakes import TOKEN, FakeJob, FakeParent
 from jsonschema import Draft202012Validator
 
-from wakewright_worker.client import API, JudgeOffer, ParentClient, Result
+from wakewright_worker.client import API, Failure, ParentClient, Result
 from wakewright_worker.judges import JudgeResult
 from wakewright_worker.judges.fake import fake_judges
-from wakewright_worker.loop import spellings
+from wakewright_worker.judges.openai_compatible import OpenAICompatibleJudge
+from wakewright_worker.loop import offer
 
 DOCUMENT = Path(__file__).resolve().parents[3] / "docs" / "api" / "worker-v1.openapi.json"
 SPEC: dict[str, Any] = json.loads(DOCUMENT.read_text(encoding="utf-8"))
@@ -75,15 +76,18 @@ def test_claim_and_results_requests_match_the_schema(parent: FakeParent) -> None
     parent.add(FakeJob("j1", "c1", judges=["openwakeword", "stt"]))
     recorder = Recorder()
     client = ParentClient(parent.url, TOKEN, "worker-1", transport=recorder)
-    offers = [JudgeOffer(j.name, j.version, spellings(j.wake_words)) for j in fake_judges()]
+    offers = [offer(j) for j in [*fake_judges(), OpenAICompatibleJudge()]]
     jobs = client.claim(offers, max_jobs=32, wait_seconds=60)
     client.audio(jobs[0].clip_id)
     long = "x" * 5000
     client.post_results(
         jobs[0].id,
         [
-            Result("openwakeword", "fake+1", JudgeResult("yes", 0.9, 0.5), 12),
-            Result("stt", "fake+1", JudgeResult("abstain", transcript=long, detail=long), 0),
+            Result("oww-1", "openwakeword", "fake+1", JudgeResult("yes", 0.9, 0.5), 12),
+            Result(
+                "stt-1", "stt", "fake+1", JudgeResult("abstain", transcript=long, detail=long), 0
+            ),
+            Result("c-1", "openai-compatible", "1", Failure(long, "quota", 1e9), 3),
         ],
     )
     claim, _audio, results = recorder.requests
@@ -98,9 +102,17 @@ def test_the_fake_parent_answers_as_the_parent_does(parent: FakeParent) -> None:
         f"{parent.url}{API}/jobs/claim",
         headers={"authorization": f"Bearer {TOKEN}"},
         json={
-            "protocol": 1,
+            "protocol": 2,
             "worker": {"name": "w", "version": "1"},
-            "judges": [{"name": "fake", "version": "1", "wakeWords": None}],
+            "types": [
+                {
+                    "id": "fake",
+                    "version": "1",
+                    "name": "Fake",
+                    "kind": "speech_to_text",
+                    "wakeWords": None,
+                }
+            ],
             "max": 8,
             "waitSeconds": 0,
         },
@@ -115,5 +127,8 @@ def test_limits_the_worker_respects() -> None:
     assert claim["waitSeconds"]["maximum"] >= 60
     result = SPEC["components"]["schemas"]["JudgeResult"]["properties"]
     assert result["transcript"]["maxLength"] == 2000
-    for judge in fake_judges():
+    assert result["detail"]["maxLength"] >= 500
+    assert SPEC["components"]["schemas"]["ClaimRequest"]["properties"]["types"]["maxItems"] >= 4
+    for judge in [*fake_judges(), OpenAICompatibleJudge()]:
         assert len(judge.version) <= 100
+        assert len(judge.settings) <= 30

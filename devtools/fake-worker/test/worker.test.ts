@@ -8,9 +8,15 @@ const DECLARED = [{ name: "fake", token: TOKEN, notes: "", enabled: true, judges
 
 test("verdicts follow the clip's case and the judges asked for", async () => {
   const audio = new Uint8Array([1, 2, 3]);
-  const results = await fakeVerdicts(audio, "alexa", ["stt", "openwakeword"]);
-  expect(results.map((r) => r.judge)).toEqual(["stt", "openwakeword"]);
-  expect(await fakeVerdicts(audio, "alexa", ["stt"])).toEqual(results.slice(0, 1));
+  const judge = (type: string) => ({ instance: type, type, settings: {} });
+  const results = await fakeVerdicts(audio, "alexa", [judge("stt"), judge("openwakeword")]);
+  expect(results.map((r) => r.instance)).toEqual(["stt", "openwakeword"]);
+  expect(await fakeVerdicts(audio, "alexa", [judge("stt")])).toEqual(results.slice(0, 1));
+  const cloud = { instance: "c", type: "openai-compatible", settings: { api_key: "bad-key" } };
+  expect((await fakeVerdicts(audio, "alexa", [cloud]))[0]).toMatchObject({
+    verdict: "failed",
+    failure: { reason: "auth" },
+  });
   expect(await fakeCase(audio)).toBe(await fakeCase(audio.slice()));
 });
 
@@ -37,11 +43,9 @@ test("judges every clip of a served parent through the worker protocol", async (
       await Bun.sleep(50);
     }
     const { clips } = await (await t.request("/api/v1/clips?pageSize=100")).json();
-    const states = new Set(
-      clips.map((c: { judging: { agreement: string } }) => c.judging.agreement),
-    );
-    expect(states.has("waiting")).toBe(false);
-    for (const state of ["agree_yes", "agree_no", "disagree", "inconclusive"]) {
+    const states = new Set(clips.map((c: { judging: { outcome: string } }) => c.judging.outcome));
+    expect([...states].sort()).toEqual(["no", "not_enough", "uncertain", "yes"]);
+    for (const state of ["yes", "no", "uncertain", "not_enough"]) {
       expect(states.has(state)).toBe(true);
     }
   } finally {

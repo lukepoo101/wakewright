@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { InferResponseType } from "hono/client";
 import { call, v1 } from "./api.ts";
 import { ago } from "./format.ts";
-import { judgeName } from "./judging.ts";
 
 // Workers: the programs that judge clips, each a record with its own
 // token, created here or declared in the server's configuration.
@@ -45,11 +44,19 @@ export function workerStatusText(w: Worker, now: number): string {
   }
 }
 
-/** "All judges", or the allowed judges by their usual names. */
-export function allowedText(w: Pick<Worker, "allowedJudges">): string {
+/** A judge type's name, from the names the parent knows, or its id. */
+export function typeName(names: Record<string, string>, id: string): string {
+  return names[id] ?? id;
+}
+
+/** "All judge types", or the allowed types by name. */
+export function allowedText(
+  w: Pick<Worker, "allowedJudges">,
+  names: Record<string, string>,
+): string {
   return w.allowedJudges === null
-    ? "All judges"
-    : w.allowedJudges.map(judgeName).join(", ") || "None";
+    ? "All judge types"
+    : w.allowedJudges.map((id) => typeName(names, id)).join(", ") || "None";
 }
 
 /** The pairing string a worker needs: this server's address and its token. */

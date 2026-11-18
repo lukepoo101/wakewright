@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
+import type { Judges } from "../judges.ts";
 import type { Judging } from "../judging.ts";
 import { version } from "../version.ts";
 import { NOTES_MAX, WORKER_NAME, type WorkerFailure, type Workers } from "../workers.ts";
@@ -11,10 +12,16 @@ import { type ApiEnv, errorContent, newApi } from "./common.ts";
 // /api/v1; a worker's token never opens these routes. Declared workers are
 // listed but cannot be changed here.
 
-/** Judges Wakewright's own worker runs, always offered as choices. */
-export const KNOWN_JUDGES = ["openwakeword", "microwakeword", "stt"] as const;
+/** Judge types Wakewright's own worker offers, always offered as choices. */
+export const KNOWN_TYPES = [
+  "openwakeword",
+  "microwakeword",
+  "stt",
+  "openai-compatible",
+  "elevenlabs",
+] as const;
 
-const JudgeName = z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,63}$/, "A judge's name, such as stt");
+const JudgeName = z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,63}$/, "A judge type's id, such as stt");
 
 export const WorkerSchema = z
   .object({
@@ -25,15 +32,16 @@ export const WorkerSchema = z
     enabled: z.boolean(),
     /** "config": declared in configuration, read-only here. "ui": created here. */
     source: z.enum(["config", "ui"]),
-    /** The judges it may run; null for every judge, including new ones. */
+    /** The judge types it may run; null for every type, including new ones. */
     allowedJudges: z.array(z.string()).nullable(),
     reported: z.object({
       /** What the worker calls itself, usually its host name. */
       name: z.string().nullable(),
       version: z.string().nullable(),
-      judges: z.array(
+      /** The judge types it offered in its last claim. */
+      types: z.array(
         z.object({
-          name: z.string(),
+          id: z.string(),
           version: z.string(),
           wakeWords: z.array(z.string()).nullable(),
         }),
@@ -57,7 +65,7 @@ const Name = z
 const Notes = z.string().trim().max(NOTES_MAX);
 const Allowed = z
   .array(JudgeName)
-  .min(1, "Allow at least one judge, or every judge")
+  .min(1, "Allow at least one judge type, or every type")
   .max(20)
   .nullable()
   .transform((js) => (js === null ? null : [...new Set(js)].sort()));
@@ -90,8 +98,10 @@ const IdParam = z.object({ id: z.string().openapi({ param: { name: "id", in: "pa
 
 const List = z.object({
   workers: z.array(WorkerSchema),
-  /** Judge names to choose from: Wakewright's own and any a worker offers. */
+  /** Judge type ids to choose from: Wakewright's own and any a worker offers. */
   judges: z.array(z.string()),
+  /** Their names, by id. */
+  typeNames: z.record(z.string(), z.string()),
   /** WAKEWRIGHT__SERVER__PUBLIC_URL, the address a pairing string suggests. */
   publicUrl: z.string().nullable(),
   /** This parent's version, for the worker image tag in the instructions. */
@@ -127,7 +137,7 @@ const routes = {
     method: "patch",
     path: "/workers/{id}",
     tags: ["workers"],
-    summary: "Rename, edit notes, pause or resume, or change the judges it may run",
+    summary: "Rename, edit notes, pause or resume, or change the judge types it may run",
     request: {
       params: IdParam,
       body: { required: true, content: { "application/json": { schema: UpdateBody } } },
@@ -165,10 +175,10 @@ const routes = {
 };
 
 export function workerAdminRoutes(
-  deps: { workers: Workers; judging: Judging; publicUrl?: URL },
+  deps: { workers: Workers; judging: Judging; judges: Judges; publicUrl?: URL },
   guard: MiddlewareHandler<ApiEnv>,
 ) {
-  const { workers, judging } = deps;
+  const { workers, judging, judges: judgeTypes } = deps;
   const app = newApi();
   app.use("/workers", guard);
   app.use("/workers/*", guard);
@@ -182,15 +192,21 @@ export function workerAdminRoutes(
   return app
     .openapi(routes.list, (c) => {
       const list = judging.workers();
-      const judges = new Set<string>(KNOWN_JUDGES);
+      const judges = new Set<string>(KNOWN_TYPES);
       for (const w of list) {
-        for (const j of w.reported.judges) judges.add(j.name);
+        for (const t of w.reported.types) judges.add(t.id);
         for (const j of w.allowedJudges ?? []) judges.add(j);
+      }
+      const typeNames: Record<string, string> = {};
+      for (const t of judgeTypes.types()) {
+        judges.add(t.id);
+        typeNames[t.id] = t.name;
       }
       return c.json(
         {
           workers: list,
           judges: [...judges].sort(),
+          typeNames,
           publicUrl: deps.publicUrl ? deps.publicUrl.href.replace(/\/$/, "") : null,
           version,
         },

@@ -9,8 +9,9 @@ import numpy as np
 import pytest
 
 from wakewright_worker.audio import Clip, InvalidAudio, noise, read_wav, silence, tone, write_wav
-from wakewright_worker.judges import factories, normalise_wake_word
-from wakewright_worker.judges.stt import contains, words
+from wakewright_worker.judges import normalise_wake_word
+from wakewright_worker.judges.registry import builtin_types
+from wakewright_worker.judges.speech import contains, words
 from wakewright_worker.models import ModelCache
 
 
@@ -50,10 +51,10 @@ def test_words() -> None:
 def test_wake_word_judges_abstain_without_a_model(monkeypatch: pytest.MonkeyPatch) -> None:
     cache = ModelCache(Path("unused"))
     for name in ("openwakeword", "microwakeword"):
-        judge = factories()[name](cache)
+        judge = builtin_types()[name](cache)
         # Pretend prepare() ran, without loading any model.
         monkeypatch.setattr(judge, "_models", {"alexa": object()})
-        result = judge.judge(Clip("Computer", silence()))
+        result = judge.judge(Clip("Computer", silence()), {})
         assert result.verdict == "abstain"
         assert result.detail is not None
         assert "'Computer'" in result.detail
@@ -64,17 +65,25 @@ def test_wake_word_judges_abstain_without_a_model(monkeypatch: pytest.MonkeyPatc
 
 def test_every_judge_refuses_to_run_before_prepare() -> None:
     cache = ModelCache(Path("unused"))
-    for make in factories().values():
+    for make in builtin_types().values():
+        judge = make(cache)
+        if judge.external:
+            continue
         with pytest.raises(RuntimeError, match="before prepare"):
-            make(cache).judge(Clip("alexa", silence()))
+            judge.judge(Clip("alexa", silence()), {})
 
 
 def test_versions_name_the_model_and_logic() -> None:
     cache = ModelCache(Path("unused"))
-    versions = {n: f(cache).version for n, f in factories().items()}
-    assert versions["openwakeword"] == "v0.5.1+1"
-    assert versions["microwakeword"].startswith("v2@")
-    assert versions["stt"].startswith("parakeet-tdt-0.6b-v2@")
+    versions = {n: f(cache).version for n, f in builtin_types().items()}
+    # Unchanged from 0.2, so nothing judged before is judged again.
+    assert versions == {
+        "openwakeword": "v0.5.1+1",
+        "microwakeword": "v2@40ff33f+1",
+        "stt": "parakeet-tdt-0.6b-v2@0bbb45a+1",
+        "openai-compatible": "openai-compatible+1",
+        "elevenlabs": "elevenlabs+1",
+    }
 
 
 def test_wav_round_trip() -> None:

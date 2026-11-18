@@ -11,7 +11,7 @@ from fakes import TOKEN, FakeJob, FakeJudge, FakeParent
 
 from wakewright_worker import loop
 from wakewright_worker.client import ParentClient
-from wakewright_worker.judges import JudgeResult
+from wakewright_worker.judges import JudgeResult, TemporaryFailure
 from wakewright_worker.loop import Worker
 
 
@@ -55,29 +55,84 @@ def test_judges_a_job_and_posts_every_result(parent: FakeParent) -> None:
     stop(w, t)
 
     claim = parent.claims[0]
-    assert claim["protocol"] == 1
+    assert claim["protocol"] == 2
     assert claim["worker"]["name"] == "test-worker"
-    assert claim["judges"] == [
-        {"name": "a", "version": "a1", "wakeWords": ["alexa"]},
-        {"name": "b", "version": "b1", "wakeWords": None},
+    assert [(t["id"], t["version"], t["wakeWords"], t["kind"]) for t in claim["types"]] == [
+        ("a", "a1", ["alexa"], "wake_word_model"),
+        ("b", "b1", None, "speech_to_text"),
     ]
     assert claim["max"] == 8
-    results = {r["judge"]: r for r in parent.results["j1"]}
-    assert results["a"] | {"durationMs": 0} == {
-        "judge": "a",
+    results = {r["instance"]: r for r in parent.results["j1"]}
+    assert results["a-1"] | {"durationMs": 0} == {
+        "instance": "a-1",
+        "type": "a",
         "version": "a1",
         "verdict": "yes",
         "score": 0.9,
         "threshold": 0.5,
         "transcript": None,
         "detail": None,
+        "failure": None,
         "durationMs": 0,
     }
-    assert results["b"]["transcript"] == "hello there"
-    assert isinstance(results["b"]["durationMs"], int)
+    assert results["b-1"]["transcript"] == "hello there"
+    assert isinstance(results["b-1"]["durationMs"], int)
     # The judge saw the clip's wake word and its 3 s of audio.
-    assert yes.seen[0].wake_word == "Alexa"
-    assert len(yes.seen[0].samples) == 48_000
+    assert yes.seen[0][0].wake_word == "Alexa"
+    assert len(yes.seen[0][0].samples) == 48_000
+
+
+def test_runs_each_judge_with_its_own_settings(parent: FakeParent) -> None:
+    stt = FakeJudge("cloud", answer=JudgeResult("yes", transcript="alexa"))
+    parent.add(
+        FakeJob(
+            "j1",
+            "c1",
+            judges=[
+                {"instance": "x", "type": "cloud", "settings": {"model": "big"}},
+                {"instance": "y", "type": "cloud", "settings": {"model": "small"}},
+            ],
+        )
+    )
+    w = make_worker(parent, [stt])
+    t = start(w)
+    assert parent.wait_for(lambda p: "j1" in p.results)
+    stop(w, t)
+    assert [s for _, s in stt.seen] == [{"model": "big"}, {"model": "small"}]
+    assert [r["instance"] for r in parent.results["j1"]] == ["x", "y"]
+
+
+def test_a_temporary_failure_is_reported_and_skips_the_judge_for_the_claim(
+    parent: FakeParent, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "sk-very-secret-key-123456"
+    cloud = FakeJudge(
+        "cloud", fail=TemporaryFailure("rate limited", reason="rate_limit", retry_after=30)
+    )
+    local = FakeJudge("local")
+    judges: list[str | dict[str, Any]] = [
+        {"instance": "c", "type": "cloud", "settings": {"api_key": secret}},
+        "local",
+    ]
+    parent.add(FakeJob("j1", "c1", judges=judges))
+    parent.add(FakeJob("j2", "c2", judges=judges))
+    w = make_worker(parent, [cloud, local], batch=2)
+    with caplog.at_level("DEBUG"):
+        t = start(w)
+        assert parent.wait_for(lambda p: "j2" in p.results)
+        stop(w, t)
+    first = {r["instance"]: r for r in parent.results["j1"]}
+    assert first["c"]["verdict"] == "failed"
+    assert first["c"]["failure"] == {"reason": "rate_limit", "retryAfterSeconds": 30}
+    assert first["c"]["detail"] == "rate limited"
+    assert first["local-1"]["verdict"] == "no"
+    # The failing judge is not tried again within the same claim.
+    assert [r["instance"] for r in parent.results["j2"]] == ["local-1"]
+    assert len(cloud.seen) == 1
+    assert w.stats.failed == 1
+    # Its settings, and so its key, are never logged.
+    assert secret not in caplog.text
+    assert secret not in repr(w)
 
 
 def test_runs_only_the_judges_the_job_asks_for(parent: FakeParent) -> None:
@@ -87,7 +142,7 @@ def test_runs_only_the_judges_the_job_asks_for(parent: FakeParent) -> None:
     t = start(w)
     assert parent.wait_for(lambda p: "j1" in p.results)
     stop(w, t)
-    assert [r["judge"] for r in parent.results["j1"]] == ["b"]
+    assert [r["type"] for r in parent.results["j1"]] == ["b"]
     assert not a.seen
 
 
@@ -99,7 +154,7 @@ def test_a_crashing_judge_abstains_with_the_error(parent: FakeParent) -> None:
     t = start(w)
     assert parent.wait_for(lambda p: "j1" in p.results)
     stop(w, t)
-    results = {r["judge"]: r for r in parent.results["j1"]}
+    results = {r["type"]: r for r in parent.results["j1"]}
     assert results["bad"]["verdict"] == "abstain"
     assert results["bad"]["detail"] == "judge error: ValueError: boom"
     assert results["good"]["verdict"] == "no"
@@ -198,7 +253,7 @@ def test_offers_only_prepared_judges_and_retries_the_rest(parent: FakeParent) ->
     w = make_worker(parent, [flaky, steady])
     w.prepare_due()
     assert list(w.ready) == ["steady"]
-    assert [o.name for o in w.offers()] == ["steady"]
+    assert [o.id for o in w.offers()] == ["steady"]
     w.pending["flaky"].next_try = 0
     w.prepare_due()
     assert sorted(w.ready) == ["flaky", "steady"]
@@ -209,10 +264,10 @@ def test_stops_promptly_and_finishes_the_job_in_hand(parent: FakeParent) -> None
     release = threading.Event()
 
     class Slow(FakeJudge):
-        def judge(self, clip: Any) -> JudgeResult:
+        def judge(self, clip: Any, settings: Any) -> JudgeResult:
             started.set()
             release.wait(5)
-            return super().judge(clip)
+            return super().judge(clip, settings)
 
     parent.add(FakeJob("j1", "c1"))
     parent.add(FakeJob("j2", "c2"))

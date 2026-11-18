@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import type { Clip, ClipSearch } from "../clips.ts";
 import { shortDateTime } from "../format.ts";
 import { usePlayer } from "../player.tsx";
-import { AgreementChip } from "./Agreement.tsx";
+import { OutcomeChip } from "./Outcome.tsx";
 import { ClippedChip, EngineName, KindChip, PlayButton, ScoreBar } from "./ClipBits.tsx";
 import styles from "./ClipList.module.css";
 
@@ -90,7 +90,9 @@ export function ClipList({
                 <ScoreBar score={clip.score} threshold={clip.threshold} />
               </span>
               <span className={styles.judges}>
-                {clip.judging.agreement !== "waiting" && <AgreementChip judging={clip.judging} />}
+                {(clip.judging.outcome !== "waiting" || clip.judging.provisional !== null) && (
+                  <OutcomeChip judging={clip.judging} />
+                )}
               </span>
               <span className={styles.flags}>
                 <ClippedChip clip={clip} labelClassName={styles.clippedLabel} />

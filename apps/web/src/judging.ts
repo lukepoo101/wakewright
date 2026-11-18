@@ -4,12 +4,13 @@ import { call, v1 } from "./api.ts";
 import type { Clip } from "./clips.ts";
 
 // What the judges said about clips, in words, and the judging status for
-// Home. Judges are run by workers; each answers "does this clip contain its
-// wake word?" with yes, no or abstain. Agreement ignores abstentions.
+// Home. Each judge answers "does this clip contain its wake word?"; their
+// yes and no votes, times their weights, decide the outcome (outcome.ts on
+// the server; the Judges page explains it).
 
 export type JudgingStatus = InferResponseType<typeof v1.judging.$get, 200>;
 export type ClipJudging = Clip["judging"];
-export type Agreement = ClipJudging["agreement"];
+export type Outcome = ClipJudging["outcome"];
 export type Mismatch = NonNullable<ClipJudging["mismatch"]>;
 
 export function useJudgingStatus() {
@@ -20,62 +21,93 @@ export function useJudgingStatus() {
   });
 }
 
-const JUDGE_NAMES: Record<string, string> = {
-  openwakeword: "openWakeWord",
-  microwakeword: "microWakeWord",
-  stt: "Speech to text",
+export const OUTCOME_LABELS: Record<Outcome, string> = {
+  yes: "Yes",
+  no: "No",
+  uncertain: "Uncertain",
+  not_enough: "Not enough evidence",
+  waiting: "Waiting",
 };
 
-/** A judge's name as people know it. */
-export function judgeName(name: string): string {
-  return JUDGE_NAMES[name] ?? name;
+/** 0.83 → "83%". */
+export function percent(x: number): string {
+  return `${Math.round(x * 100)}%`;
 }
 
-/** The compact count shown in lists: "3 of 3 yes", "2 of 3 yes", "Not judged". */
-export function agreementShort(j: ClipJudging): string {
-  const votes = j.yes + j.no;
-  switch (j.agreement) {
+/** A score from -1 to +1 as people read it: "+0.25", "−1.00". */
+export function signedScore(score: number): string {
+  const s = Math.abs(score).toFixed(2);
+  return score > 0.004 ? `+${s}` : score < -0.004 ? `−${s}` : s;
+}
+
+/** The compact chip text: "Yes · 100%", "Uncertain · 62% yes", "Waiting · yes so far". */
+export function outcomeShort(j: ClipJudging): string {
+  const lean = j.yesWeight >= j.noWeight ? "yes" : "no";
+  switch (j.outcome) {
+    case "yes":
+    case "no":
+      return j.confidence === null
+        ? OUTCOME_LABELS[j.outcome]
+        : `${OUTCOME_LABELS[j.outcome]} · ${percent(j.confidence)}`;
+    case "uncertain":
+      return j.confidence === null ? "Uncertain" : `Uncertain · ${percent(j.confidence)} ${lean}`;
+    case "not_enough":
+      return "Not enough";
     case "waiting":
-      return "Not judged";
-    case "inconclusive":
-      return votes === 1 ? "1 vote" : "No votes";
-    case "agree_no":
-      return `${j.no} of ${votes} no`;
-    default:
-      return `${j.yes} of ${votes} yes`;
+      return j.provisional === "yes" || j.provisional === "no"
+        ? `Waiting · ${j.provisional} so far`
+        : "Waiting";
   }
 }
 
-/** Every vote in words, for a tooltip and screen readers. */
-export function agreementLong(j: ClipJudging): string {
-  if (j.agreement === "waiting") return "No judge has answered yet";
-  const parts = [
-    j.yes > 0 && `${j.yes} ${j.yes === 1 ? "judge says" : "judges say"} it is the wake word`,
-    j.no > 0 && `${j.no} ${j.no === 1 ? "says" : "say"} it is not`,
+/** The outcome in a sentence, for a tooltip and screen readers. */
+export function outcomeLong(j: ClipJudging): string {
+  const votes = [
+    j.yes > 0 && `${j.yes} ${j.yes === 1 ? "judge says" : "judges say"} yes`,
+    j.no > 0 && `${j.no} ${j.no === 1 ? "says" : "say"} no`,
     j.abstain > 0 && `${j.abstain} could not tell`,
   ].filter(Boolean);
-  const text = parts.join(", ");
-  const mismatch = j.mismatch ? `. ${mismatchLabel(j.mismatch)}` : "";
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}${mismatch}`;
+  const said = votes.length > 0 ? ` ${votes.join(", ")}.` : "";
+  const weight = j.yesWeight + j.noWeight;
+  const share =
+    j.confidence !== null && weight > 0
+      ? ` ${percent(j.confidence)} of the voting weight is on the ${j.yesWeight >= j.noWeight ? "yes" : "no"} side.`
+      : "";
+  const mismatch = j.mismatch ? ` ${mismatchLabel(j.mismatch)}.` : "";
+  const head: Record<Outcome, string> = {
+    yes: "Outcome: it is the wake word.",
+    no: "Outcome: it is not the wake word.",
+    uncertain: "Outcome: uncertain, the judges lean neither way strongly enough.",
+    not_enough: "Outcome: not enough evidence, too little weight voted.",
+    waiting:
+      j.provisional === null
+        ? "No judge has answered yet."
+        : `Waiting for judges; so far: ${OUTCOME_LABELS[j.provisional].toLowerCase()}.`,
+  };
+  return `${head[j.outcome]}${said}${share}${mismatch}`;
 }
 
 export function mismatchLabel(m: Mismatch): string {
   return m === "false_wake" ? "Likely false wake" : "Likely missed wake word";
 }
 
-/** The Judges filter: one choice in the UI, an agreement or a mismatch in the API. */
-export type JudgesFilter = Agreement | Mismatch;
+/** The Judges filter: one choice in the UI; an outcome, a mismatch or dissent in the API. */
+export type JudgesFilter = Outcome | Mismatch | "dissent";
 
 export const JUDGES_FILTERS: { value: JudgesFilter; label: string }[] = [
-  { value: "disagree", label: "Disagreements" },
+  { value: "uncertain", label: "Uncertain" },
   { value: "false_wake", label: "Likely false wakes" },
   { value: "missed_wake", label: "Likely missed wake words" },
-  { value: "agree_yes", label: "All say yes" },
-  { value: "agree_no", label: "All say no" },
-  { value: "inconclusive", label: "Too few votes" },
-  { value: "waiting", label: "Not judged yet" },
+  { value: "dissent", label: "A judge dissents" },
+  { value: "yes", label: "Outcome yes" },
+  { value: "no", label: "Outcome no" },
+  { value: "not_enough", label: "Not enough evidence" },
+  { value: "waiting", label: "Waiting for judges" },
 ];
 
-export function isMismatch(value: JudgesFilter): value is Mismatch {
-  return value === "false_wake" || value === "missed_wake";
+/** The API query for a Judges filter. */
+export function judgesQuery(value: JudgesFilter) {
+  if (value === "false_wake" || value === "missed_wake") return { mismatch: value };
+  if (value === "dissent") return { dissent: "1" as const };
+  return { outcome: value };
 }

@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import type { DeclaredWorker } from "./config.ts";
-import type { OfferedJudge } from "./db/judging.ts";
 import {
   deleteWorker,
   getWorker,
@@ -9,6 +8,7 @@ import {
   releaseLeases,
   setWorkerToken,
   updateWorker,
+  type OfferedType,
   type WorkerChanges,
   type WorkerRow,
   type WorkerSource,
@@ -319,12 +319,13 @@ export interface WorkerRecord {
   notes: string;
   enabled: boolean;
   source: WorkerSource;
-  /** The judges it may run; null for every judge. */
+  /** The judge types it may run; null for every type. */
   allowedJudges: string[] | null;
   reported: {
     name: string | null;
     version: string | null;
-    judges: OfferedJudge[];
+    /** The judge types it offered in its last claim. */
+    types: OfferedType[];
     firstSeenAt: string | null;
     lastSeenAt: string | null;
   };
@@ -345,10 +346,10 @@ export function toRecord(row: WorkerRow): WorkerRecord {
     reported: {
       name: row.reported_name,
       version: row.reported_version,
-      judges:
+      types:
         row.offered_judges_json === null
           ? []
-          : (JSON.parse(row.offered_judges_json) as OfferedJudge[]),
+          : (JSON.parse(row.offered_judges_json) as OfferedType[]),
       firstSeenAt: row.first_seen_at,
       lastSeenAt: row.last_seen_at,
     },
@@ -358,12 +359,12 @@ export function toRecord(row: WorkerRow): WorkerRecord {
   };
 }
 
-/** The offered judges this worker may run: none while paused. */
-export function routedJudges(
-  offered: readonly OfferedJudge[],
+/** The offered judge types this worker may run: none while paused. */
+export function routedTypes<T extends { id: string }>(
+  offered: readonly T[],
   worker: { enabled: boolean; allowedJudges: string[] | null },
-): OfferedJudge[] {
+): T[] {
   if (!worker.enabled) return [];
   const allowed = worker.allowedJudges;
-  return allowed === null ? [...offered] : offered.filter((j) => allowed.includes(j.name));
+  return allowed === null ? [...offered] : offered.filter((t) => allowed.includes(t.id));
 }

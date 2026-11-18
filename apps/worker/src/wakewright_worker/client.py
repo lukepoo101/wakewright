@@ -6,16 +6,16 @@ source of truth). The worker only ever makes outbound requests.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
 
 from wakewright_worker import __version__
-from wakewright_worker.judges import JudgeResult
+from wakewright_worker.judges import FailureReason, JudgeResult
 
-PROTOCOL = 1
+PROTOCOL = 2
 API = "/api/worker/v1"
 
 
@@ -48,10 +48,39 @@ class LeaseLost(ParentError):
 
 
 @dataclass(frozen=True)
-class JudgeOffer:
-    name: str
+class TypeOffer:
+    """A judge type as the claim advertises it, with its settings form."""
+
+    id: str
     version: str
+    name: str
+    kind: str
+    description: str
+    external: bool
     wake_words: list[str] | None
+    settings: list[dict[str, Any]]
+
+    def to_wire(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "version": self.version,
+            "name": self.name,
+            "kind": self.kind,
+            "description": self.description,
+            "external": self.external,
+            "wakeWords": self.wake_words,
+            "settings": self.settings,
+        }
+
+
+@dataclass(frozen=True)
+class JobJudge:
+    """One judge (instance) to run on a job's clip. `settings` can hold an
+    API key: it is left out of repr, and must never be logged."""
+
+    instance: str
+    type: str
+    settings: dict[str, Any] = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -59,29 +88,58 @@ class Job:
     id: str
     clip_id: str
     wake_word: str
-    judges: list[str]
+    judges: list[JobJudge]
     lease_expires_at: str
 
 
 @dataclass(frozen=True)
+class Failure:
+    """A judge could not answer now: nothing is recorded for the clip."""
+
+    message: str
+    reason: FailureReason
+    retry_after: float | None = None
+
+
+@dataclass(frozen=True)
 class Result:
-    judge: str
+    instance: str
+    type: str
     version: str
-    result: JudgeResult
+    result: JudgeResult | Failure
     duration_ms: int
 
     def to_wire(self) -> dict[str, Any]:
-        r = asdict(self.result)
-        return {
-            "judge": self.judge,
+        base: dict[str, Any] = {
+            "instance": self.instance,
+            "type": self.type,
             "version": self.version,
+            "durationMs": self.duration_ms,
+        }
+        if isinstance(self.result, Failure):
+            f = self.result
+            return base | {
+                "verdict": "failed",
+                "score": None,
+                "threshold": None,
+                "transcript": None,
+                "detail": f.message[:500],
+                "failure": {
+                    "reason": f.reason,
+                    "retryAfterSeconds": None
+                    if f.retry_after is None
+                    else min(86_400.0, f.retry_after),
+                },
+            }
+        r = asdict(self.result)
+        return base | {
             "verdict": r["verdict"],
             "score": r["score"],
             "threshold": r["threshold"],
             # The parent stores at most 2000 characters of each.
             "transcript": None if r["transcript"] is None else r["transcript"][:2000],
             "detail": None if r["detail"] is None else r["detail"][:2000],
-            "durationMs": self.duration_ms,
+            "failure": None,
         }
 
 
@@ -150,13 +208,11 @@ class ParentClient:
             raise Unreachable(f"{method} {path}: HTTP {r.status_code}")
         raise ParentError(f"{method} {path}: HTTP {r.status_code}: {body}")
 
-    def claim(self, judges: list[JudgeOffer], max_jobs: int, wait_seconds: int) -> list[Job]:
+    def claim(self, types: list[TypeOffer], max_jobs: int, wait_seconds: int) -> list[Job]:
         body = {
             "protocol": PROTOCOL,
             "worker": {"name": self.worker_name, "version": __version__},
-            "judges": [
-                {"name": j.name, "version": j.version, "wakeWords": j.wake_words} for j in judges
-            ],
+            "types": [t.to_wire() for t in types],
             "max": max_jobs,
             "waitSeconds": wait_seconds,
         }
@@ -169,7 +225,14 @@ class ParentClient:
                     id=str(j["id"]),
                     clip_id=str(j["clipId"]),
                     wake_word=str(j["wakeWord"]),
-                    judges=[str(n) for n in j["judges"]],
+                    judges=[
+                        JobJudge(
+                            instance=str(x["instance"]),
+                            type=str(x["type"]),
+                            settings=dict(cast(dict[str, Any], x.get("settings") or {})),
+                        )
+                        for x in j["judges"]
+                    ],
                     lease_expires_at=str(j["leaseExpiresAt"]),
                 )
                 for j in data["jobs"]

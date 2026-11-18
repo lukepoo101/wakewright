@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Wakewright worker API",
-    "version": "1",
-    "description": "How a worker claims clips from a Wakewright parent, downloads their audio and returns each judge's verdict. See docs/workers.md.",
+    "version": "2",
+    "description": "How a worker advertises its judge types, claims clips from a Wakewright parent, downloads their audio and returns each judge's result. See docs/workers.md and docs/judges.md.",
     "license": {
       "name": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -35,11 +35,9 @@
           "judges": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
-              "example": "openwakeword"
+              "$ref": "#/components/schemas/JobJudge"
             },
-            "description": "The offered judges to run on this clip, at the versions offered."
+            "description": "The judges to run on this clip, each of a type the worker offered."
           },
           "leaseExpiresAt": {
             "type": "string",
@@ -48,6 +46,49 @@
           }
         },
         "required": ["id", "clipId", "wakeWord", "judges", "leaseExpiresAt"]
+      },
+      "JobJudge": {
+        "type": "object",
+        "properties": {
+          "instance": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "A judge (instance) the owner configured on the parent's Judges page.",
+            "example": "0198f6a2-7c41-7b8e-9d1a-4f2b3c5d6e7f"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
+            "example": "openai-compatible"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Every setting of the judge, secrets included, by key. Never log them or keep them after the job.",
+            "example": {
+              "base_url": "https://api.example.com/v1",
+              "api_key": "sk-example",
+              "model": "whisper-1"
+            }
+          }
+        },
+        "required": ["instance", "type", "settings"]
       },
       "Error": {
         "type": "object",
@@ -92,8 +133,8 @@
         "properties": {
           "protocol": {
             "type": "integer",
-            "description": "The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks 1.",
-            "example": 1
+            "description": "The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks 2.",
+            "example": 2
           },
           "worker": {
             "type": "object",
@@ -108,19 +149,20 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "example": "0.2.0"
+                "example": "0.3.0"
               }
             },
             "required": ["name", "version"],
             "description": "What the worker says about itself, shown in the UI beside the worker's own name: usually its host name and its version. The token, not this name, identifies the worker."
           },
-          "judges": {
+          "types": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/OfferedJudge"
+              "$ref": "#/components/schemas/OfferedType"
             },
             "minItems": 1,
-            "maxItems": 20
+            "maxItems": 20,
+            "description": "The judge types this worker can run now."
           },
           "max": {
             "type": "integer",
@@ -137,21 +179,42 @@
             "description": "How long to wait for work when there is none now."
           }
         },
-        "required": ["protocol", "worker", "judges"]
+        "required": ["protocol", "worker", "types"]
       },
-      "OfferedJudge": {
+      "OfferedType": {
         "type": "object",
         "properties": {
-          "name": {
+          "id": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
-            "example": "openwakeword"
+            "example": "openai-compatible"
           },
           "version": {
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "example": "alexa_v0.1+1"
+            "example": "openai-compatible+1",
+            "description": "Changes whenever the type's model or logic changes in a way that can change a verdict; every clip is then judged again."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "OpenAI-compatible transcription"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["wake_word_model", "speech_to_text"]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "default": ""
+          },
+          "external": {
+            "type": "boolean",
+            "default": false,
+            "description": "True when the type sends clips to a service outside the worker; the UI warns before such a judge is turned on."
           },
           "wakeWords": {
             "type": ["array", "null"],
@@ -161,11 +224,106 @@
               "maxLength": 64
             },
             "maxItems": 200,
-            "description": "The wake words this judge has a model for, or null for any wake word.",
-            "example": ["alexa"]
+            "description": "The wake words this type has a model for, or null for any wake word.",
+            "example": null
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingField"
+            },
+            "maxItems": 30,
+            "default": [],
+            "description": "The form the Judges page shows for a judge of this type."
           }
         },
-        "required": ["name", "version", "wakeWords"]
+        "required": ["id", "version", "name", "kind", "wakeWords"]
+      },
+      "SettingField": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "model"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "Model"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "secret", "number", "select", "boolean"],
+            "description": "How the form shows it. A secret (an API key) is stored encrypted and never shown again."
+          },
+          "help": {
+            "type": "string",
+            "maxLength": 1000,
+            "default": ""
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": ["value", "label"]
+            },
+            "maxItems": 100,
+            "default": [],
+            "description": "The choices of a select."
+          },
+          "minimum": {
+            "type": ["number", "null"],
+            "default": null
+          },
+          "maximum": {
+            "type": ["number", "null"],
+            "default": null
+          },
+          "placeholder": {
+            "type": "string",
+            "maxLength": 200,
+            "default": ""
+          },
+          "affectsVerdict": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether changing it can change a verdict. If so, changing it judges every clip again. Ignored for a secret, which never does."
+          }
+        },
+        "required": ["key", "label", "type"]
       },
       "JobResults": {
         "type": "object",
@@ -184,21 +342,29 @@
       "JudgeResult": {
         "type": "object",
         "properties": {
-          "judge": {
+          "instance": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "A judge (instance) the owner configured on the parent's Judges page.",
+            "example": "0198f6a2-7c41-7b8e-9d1a-4f2b3c5d6e7f"
+          },
+          "type": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$",
-            "example": "openwakeword"
+            "example": "openai-compatible"
           },
           "version": {
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "example": "alexa_v0.1+1"
+            "example": "openai-compatible+1",
+            "description": "The version of the type that ran."
           },
           "verdict": {
             "type": "string",
-            "enum": ["yes", "no", "abstain"],
-            "description": "Does the clip contain its wake word? Abstain, with a detail, when the judge cannot say (no model, or it failed on this clip)."
+            "enum": ["yes", "no", "abstain", "failed"],
+            "description": "Does the clip contain its wake word? `abstain`, with a detail, when the judge cannot say for this clip (no model for its wake word, unusable audio). `failed`, with a detail and `failure`, when it cannot answer now (rate limited, quota used up, network, a refused key): nothing is recorded, the judge is paused and the clip tried again later."
           },
           "score": {
             "type": ["number", "null"]
@@ -214,6 +380,24 @@
             "type": ["string", "null"],
             "maxLength": 2000
           },
+          "failure": {
+            "type": ["object", "null"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": ["auth", "rate_limit", "quota", "network", "server", "other"]
+              },
+              "retryAfterSeconds": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 86400,
+                "description": "When the service said to try again, if it did."
+              }
+            },
+            "default": null,
+            "required": ["reason", "retryAfterSeconds"],
+            "description": "For `failed` only."
+          },
           "durationMs": {
             "type": "number",
             "minimum": 0,
@@ -221,7 +405,8 @@
           }
         },
         "required": [
-          "judge",
+          "instance",
+          "type",
           "version",
           "verdict",
           "score",
@@ -239,7 +424,7 @@
       "post": {
         "tags": ["worker"],
         "summary": "Lease clips to judge, waiting for one when there are none (long poll)",
-        "description": "Hands out up to `max` clips, newest first, that lack a result from any offered judge at its offered version and that no other worker holds. Only judges the worker is allowed to run are asked for, and a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
+        "description": "Records the judge types the worker offers, then hands out up to `max` clips, newest first, that lack a current result (the offered type version and the judge's settings) from an enabled judge of an offered type the worker may run, and that no other worker holds. A judge paused after a failure or at its daily limit is left out; a paused worker gets no jobs. Each clip is leased to this claim for about two minutes. With nothing to do, the request waits up to `waitSeconds` and answers an empty list. Every claim records the worker as seen.",
         "security": [
           {
             "workerToken": []
@@ -365,8 +550,8 @@
     "/api/worker/v1/jobs/{id}/results": {
       "post": {
         "tags": ["worker"],
-        "summary": "Send a job's verdicts; ends its lease",
-        "description": "One result per judge the job named. A judge left out is offered again on a later claim. A judge that failed on the clip reports `abstain` with a `detail`, so the clip is not retried forever.",
+        "summary": "Send a job's results; ends its lease",
+        "description": "At most one result per judge the job named. A judge left out is offered again on a later claim. A judge that cannot answer this clip reports `abstain` with a `detail`, so the clip is not retried forever; one that cannot answer now reports `failed`, which pauses the judge.",
         "security": [
           {
             "workerToken": []
@@ -397,7 +582,7 @@
             "description": "Stored"
           },
           "400": {
-            "description": "The request is not valid, or names a judge the job did not ask for",
+            "description": "The request is not valid, or names a judge or version the job did not ask for",
             "content": {
               "application/json": {
                 "schema": {

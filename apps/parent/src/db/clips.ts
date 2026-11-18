@@ -1,5 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { type Agreement, CLIPS_WITH_JUDGING, type Mismatch } from "./judging.ts";
+import type { Outcome } from "../outcome.ts";
+import {
+  clipsWithJudging,
+  DISSENT,
+  type JudgingColumns,
+  type Mismatch,
+  type OutcomeContext,
+} from "./judging.ts";
 
 // Clips and the blobs holding their audio.
 
@@ -73,21 +80,15 @@ export interface ClipFilter {
   from?: string;
   /** Exclusive upper bound on captured_at (ISO). */
   to?: string;
-  /** The judges' agreement (db/judging.ts). */
-  agreement?: Agreement;
-  /** The judges agree against the device. */
+  /** The judges' weighted outcome (outcome.ts). */
+  outcome?: Outcome;
+  /** The outcome is against the device. */
   mismatch?: Mismatch;
+  /** A counted judge voted against the outcome. */
+  dissent?: boolean;
 }
 
-export type ClipListRow = ClipRow & {
-  device_name: string;
-  device_removed: number;
-  votes_yes: number;
-  votes_no: number;
-  votes_abstain: number;
-  agreement: Agreement;
-  mismatch: Mismatch | null;
-};
+export type ClipListRow = ClipRow & JudgingColumns;
 
 // Builds the WHERE clause for a filter. Values are always bound, never
 // interpolated.
@@ -114,22 +115,26 @@ function where(filter: ClipFilter): { sql: string; params: Record<string, string
     parts.push("c.captured_at < $to");
     params.to = filter.to;
   }
-  if (filter.agreement) {
-    parts.push("c.agreement = $agreement");
-    params.agreement = filter.agreement;
+  if (filter.outcome) {
+    parts.push("c.outcome = $outcome");
+    params.outcome = filter.outcome;
   }
   if (filter.mismatch) {
     parts.push("c.mismatch = $mismatch");
     params.mismatch = filter.mismatch;
   }
+  if (filter.dissent) parts.push(DISSENT);
   return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", params };
 }
 
-const SELECT_CLIP = `SELECT c.* FROM ${CLIPS_WITH_JUDGING}`;
-
 // Counting and stepping need the judging columns only to filter on them.
-function source(filter: ClipFilter): string {
-  return filter.agreement || filter.mismatch ? CLIPS_WITH_JUDGING : "clips c";
+function source(
+  filter: ClipFilter,
+  ctx: OutcomeContext,
+): { sql: string; params: Record<string, string | number> } {
+  return filter.outcome || filter.mismatch || filter.dissent
+    ? clipsWithJudging(ctx)
+    : { sql: "clips c", params: {} };
 }
 
 /** Newest first, then by id so equal times have a stable order. */
@@ -137,24 +142,39 @@ export function listClips(
   db: Database,
   filter: ClipFilter,
   page: { limit: number; offset: number },
+  ctx: OutcomeContext,
 ): { rows: ClipListRow[]; total: number } {
   const w = where(filter);
+  const from = source(filter, ctx);
   const total =
     db
-      .query<{ n: number }, Record<string, string>>(
-        `SELECT count(*) AS n FROM ${source(filter)} ${w.sql}`,
+      .query<{ n: number }, Record<string, string | number>>(
+        `SELECT count(*) AS n FROM ${from.sql} ${w.sql}`,
       )
-      .get(w.params)?.n ?? 0;
+      .get({ ...from.params, ...w.params })?.n ?? 0;
+  const all = clipsWithJudging(ctx);
   const rows = db
     .query<ClipListRow, Record<string, string | number>>(
-      `${SELECT_CLIP} ${w.sql} ORDER BY c.captured_at DESC, c.id DESC LIMIT $limit OFFSET $offset`,
+      `SELECT c.* FROM ${all.sql} ${w.sql}
+       ORDER BY c.captured_at DESC, c.id DESC LIMIT $limit OFFSET $offset`,
     )
-    .all({ ...w.params, limit: page.limit, offset: page.offset });
+    .all({ ...all.params, ...w.params, limit: page.limit, offset: page.offset });
   return { rows, total };
 }
 
-export function getClip(db: Database, id: string): ClipListRow | null {
-  return db.query<ClipListRow, [string]>(`${SELECT_CLIP} WHERE c.id = ?`).get(id);
+/** One clip with its judging columns. */
+export function getClip(db: Database, id: string, ctx: OutcomeContext): ClipListRow | null {
+  const all = clipsWithJudging(ctx);
+  return db
+    .query<ClipListRow, Record<string, string | number>>(
+      `SELECT c.* FROM ${all.sql} WHERE c.id = $id`,
+    )
+    .get({ ...all.params, id });
+}
+
+/** One clip's own row, without judging. */
+export function getClipRow(db: Database, id: string): ClipRow | null {
+  return db.query<ClipRow, [string]>("SELECT * FROM clips WHERE id = ?").get(id);
 }
 
 /** The clips just newer and just older than `clip` within the same filter. */
@@ -162,19 +182,21 @@ export function clipNeighbours(
   db: Database,
   clip: ClipRow,
   filter: ClipFilter,
+  ctx: OutcomeContext,
 ): { newer: string | null; older: string | null } {
   const w = where(filter);
+  const from = source(filter, ctx);
   const and = w.sql ? `${w.sql} AND` : "WHERE";
-  const params = { ...w.params, at: clip.captured_at, id: clip.id };
+  const params = { ...from.params, ...w.params, at: clip.captured_at, id: clip.id };
   const newer = db
-    .query<{ id: string }, Record<string, string>>(
-      `SELECT c.id FROM ${source(filter)} ${and} (c.captured_at > $at OR (c.captured_at = $at AND c.id > $id))
+    .query<{ id: string }, Record<string, string | number>>(
+      `SELECT c.id FROM ${from.sql} ${and} (c.captured_at > $at OR (c.captured_at = $at AND c.id > $id))
        ORDER BY c.captured_at ASC, c.id ASC LIMIT 1`,
     )
     .get(params);
   const older = db
-    .query<{ id: string }, Record<string, string>>(
-      `SELECT c.id FROM ${source(filter)} ${and} (c.captured_at < $at OR (c.captured_at = $at AND c.id < $id))
+    .query<{ id: string }, Record<string, string | number>>(
+      `SELECT c.id FROM ${from.sql} ${and} (c.captured_at < $at OR (c.captured_at = $at AND c.id < $id))
        ORDER BY c.captured_at DESC, c.id DESC LIMIT 1`,
     )
     .get(params);
