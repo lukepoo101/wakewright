@@ -99,7 +99,7 @@ async function main(argv: string[]) {
   const branch = `release/v${version}`;
   const dir = mkdtempSync(join(tmpdir(), "wakewright-release-"));
   try {
-    await $`git worktree add --quiet -b ${branch} ${dir} origin/main`;
+    await $`git worktree add --quiet --detach ${dir} origin/main`;
     const root = (await Bun.file(join(dir, "package.json")).json()) as { workspaces: string[] };
     for (const pattern of root.workspaces) {
       for await (const file of new Bun.Glob(`${pattern}/package.json`).scan(dir)) {
@@ -111,13 +111,15 @@ async function main(argv: string[]) {
         );
       }
     }
-    await $`bun install --lockfile-only`.cwd(dir).quiet();
+    // Updates bun.lock's workspace versions and installs, so the pre-push
+    // hook (`mise run check`) can run in this worktree.
+    await $`bun install`.cwd(dir).quiet();
     const changelog = join(dir, "CHANGELOG.md");
     await Bun.write(changelog, insert(await Bun.file(changelog).text(), version, newSection));
     await $`bun fmt CHANGELOG.md`.cwd(dir).quiet();
     await $`bun scripts/check-versions.ts`.cwd(dir);
     await $`git add -A && git commit --quiet -m ${`Release ${version}`}`.cwd(dir);
-    await $`git push --quiet -u origin ${branch}`.cwd(dir);
+    await $`git push --quiet origin ${`HEAD:refs/heads/${branch}`}`.cwd(dir);
     const body = [
       `Merging this pull request releases ${version}${isPrerelease(version) ? " as a pre-release" : ""}: CI publishes the images and creates the \`v${version}\` tag and GitHub release, with the CHANGELOG.md section below as its notes.`,
       "",
