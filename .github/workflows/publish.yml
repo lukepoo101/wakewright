@@ -17,6 +17,7 @@ permissions: {}
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   meta:
