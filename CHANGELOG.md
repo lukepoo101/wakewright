@@ -7,6 +7,14 @@ the pull requests merged since the last release; see
 [Semantic Versioning](https://semver.org); before 1.0, a minor release may
 break things and says how to upgrade.
 
+## 0.5.0 - 2026-11-19
+
+### New features
+
+- Add listening judges that ask an audio model whether someone says the wake word by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/52
+
+**Full Changelog**: https://github.com/lukepoo101/wakewright/compare/v0.4.0...v0.5.0
+
 ## 0.4.0 - 2026-11-18
 
 ### New features
