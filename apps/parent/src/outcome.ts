@@ -25,7 +25,7 @@ export interface OutcomeRule {
 export const DEFAULT_RULE: OutcomeRule = { margin: 0.5, minimum: 1 };
 
 /** Default weights of new judges, by kind. */
-export const DEFAULT_WEIGHT = { speech_to_text: 1, wake_word_model: 0.3 } as const;
+export const DEFAULT_WEIGHT = { speech_to_text: 1, wake_word_model: 0.3, listening: 0.5 } as const;
 export const MAX_WEIGHT = 10;
 
 /** Float sums such as 0.3 + 0.3 + 0.4 must still reach 1. */

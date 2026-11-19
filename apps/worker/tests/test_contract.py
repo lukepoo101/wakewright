@@ -102,7 +102,7 @@ def test_the_fake_parent_answers_as_the_parent_does(parent: FakeParent) -> None:
         f"{parent.url}{API}/jobs/claim",
         headers={"authorization": f"Bearer {TOKEN}"},
         json={
-            "protocol": 2,
+            "protocol": 3,
             "worker": {"name": "w", "version": "1"},
             "types": [
                 {

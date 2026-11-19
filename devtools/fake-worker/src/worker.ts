@@ -5,18 +5,19 @@
 // clips cover every outcome with the default weights: yes, no, uncertain,
 // a yes with a dissenting judge, and not enough evidence.
 
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 
 export interface FakeSetting {
   key: string;
   label: string;
-  type: "text" | "secret" | "number" | "select" | "boolean";
+  type: "text" | "long_text" | "secret" | "number" | "select" | "boolean";
   help?: string;
   default?: string | number | boolean | null;
   required?: boolean;
   minimum?: number | null;
   maximum?: number | null;
   placeholder?: string;
+  options?: { value: string; label: string }[];
   affectsVerdict?: boolean;
 }
 
@@ -24,7 +25,7 @@ export interface FakeType {
   id: string;
   version: string;
   name: string;
-  kind: "wake_word_model" | "speech_to_text";
+  kind: "wake_word_model" | "speech_to_text" | "listening";
   description: string;
   external: boolean;
   wakeWords: string[] | null;
@@ -37,7 +38,9 @@ export interface FakeType {
  * the same forms. openWakeWord has no "okay_nabu", as a real one might not.
  * The OpenAI-compatible type never calls anything: an API key starting with
  * "bad" fails as a refused key, a base URL containing "unreachable" as a
- * network failure, "quota" in the model as a used-up quota.
+ * network failure, "quota" in the model as a used-up quota; so does the
+ * listening type, which also hears the wake word in the clips speech to
+ * text gets wrong.
  */
 export const FAKE_TYPES: FakeType[] = [
   {
@@ -113,6 +116,69 @@ export const FAKE_TYPES: FakeType[] = [
       },
     ],
   },
+  {
+    id: "audio-question",
+    version: "fake-1",
+    name: "Audio question (fake)",
+    kind: "listening",
+    description:
+      "Asks a model that accepts audio, through an OpenAI-compatible /chat/completions endpoint, whether someone says the wake word. This fake calls nothing.",
+    external: true,
+    wakeWords: null,
+    settings: [
+      {
+        key: "base_url",
+        label: "API base URL",
+        type: "text",
+        help: "The address up to /v1, without /chat/completions.",
+        required: true,
+        placeholder: "https://api.openai.com/v1",
+      },
+      {
+        key: "api_key",
+        label: "API key",
+        type: "secret",
+        help: "Sent as a bearer token. Leave empty for a server that needs none.",
+      },
+      {
+        key: "model",
+        label: "Model",
+        type: "text",
+        help: "A model that accepts audio input.",
+        required: true,
+        placeholder: "gpt-4o-audio-preview",
+      },
+      {
+        key: "prompt",
+        label: "Prompt",
+        type: "long_text",
+        help: "Leave empty to use the built-in prompt, shown here. {wake_word} is replaced with the wake word as said.",
+        placeholder:
+          'Listen to this audio clip and decide whether a person in it clearly says the wake word "{wake_word}".\n\nReply with JSON only: {"said": "...", "heard": "yes" or "no" or "unsure"}',
+      },
+      {
+        key: "reasoning_effort",
+        label: "Reasoning effort",
+        type: "select",
+        default: "model_default",
+        required: true,
+        options: [
+          { value: "model_default", label: "Leave to the model" },
+          { value: "low", label: "Low" },
+          { value: "high", label: "High" },
+        ],
+      },
+      {
+        key: "timeout",
+        label: "Timeout (seconds)",
+        type: "number",
+        default: 60,
+        minimum: 1,
+        maximum: 300,
+        affectsVerdict: false,
+      },
+    ],
+  },
 ];
 
 export type FakeCase = "agree_yes" | "agree_no" | "disagree" | "abstain" | "failure";
@@ -152,17 +218,20 @@ export async function fakeVerdicts(
 ): Promise<Result[]> {
   const which = await fakeCase(audio);
   const spoken = wakeWord.replace(/_/g, " ");
-  // [openWakeWord score, microWakeWord score or "abstain", transcript or "fail"]
-  const plan: Record<FakeCase, [number, number | "abstain", string | "fail"]> = {
-    agree_yes: [0.91, 0.98, `${spoken} turn on the lights`],
-    agree_no: [0.08, 0.12, "a lexicon"],
-    // The wake word models say yes, speech to text no: uncertain.
-    disagree: [0.64, 0.95, "a lexicon"],
+  // [openWakeWord score, microWakeWord score or "abstain", transcript or
+  // "fail", what a listening model hears]
+  type Plan = [number, number | "abstain", string | "fail", "yes" | "no" | "unsure"];
+  const plan: Record<FakeCase, Plan> = {
+    agree_yes: [0.91, 0.98, `${spoken} turn on the lights`, "yes"],
+    agree_no: [0.08, 0.12, "a lexicon", "no"],
+    // The wake word models say yes, speech to text no: uncertain. A
+    // listening model hears the wake word the transcript got wrong.
+    disagree: [0.64, 0.95, "a lexicon", "yes"],
     // openWakeWord dissents from a yes.
-    abstain: [0.31, "abstain", spoken],
-    failure: [0.71, "abstain", "fail"],
+    abstain: [0.31, "abstain", spoken, "unsure"],
+    failure: [0.71, "abstain", "fail", "yes"],
   };
-  const [oww, mww, said] = plan[which];
+  const [oww, mww, said, heard] = plan[which];
   const results: Result[] = [];
   for (const j of judges) {
     const version = FAKE_TYPES.find((t) => t.id === j.type)?.version ?? "fake-1";
@@ -202,9 +271,29 @@ export async function fakeVerdicts(
       );
     } else if (j.type === "openai-compatible") {
       results.push(cloud(base, j.settings, said === "fail" ? spoken : said, spoken));
+    } else if (j.type === "audio-question") {
+      results.push(listening(base, j.settings, heard, spoken));
     }
   }
   return results;
+}
+
+function listening(
+  base: Omit<Result, "verdict">,
+  settings: Record<string, unknown>,
+  heard: "yes" | "no" | "unsure",
+  spoken: string,
+): Result {
+  const failed = cloud(base, settings, "", spoken);
+  if (failed.verdict === "failed") return failed;
+  const note = {
+    yes: `someone says ${spoken}, then asks for the lights`,
+    no: "a different word, not the wake word",
+    unsure: "very quiet speech, hard to make out",
+  }[heard];
+  return heard === "unsure"
+    ? { ...base, verdict: "abstain", transcript: note, detail: "the model said it is unsure" }
+    : { ...base, verdict: heard, transcript: note, durationMs: 900 };
 }
 
 function cloud(

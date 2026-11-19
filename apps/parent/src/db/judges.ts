@@ -6,7 +6,13 @@ import type { OutcomeRule } from "../outcome.ts";
 // outcome rule (migration 0005, ADR 0019). Judging itself (claims, leases,
 // results) is in judging.ts.
 
-export type JudgeKind = "wake_word_model" | "speech_to_text";
+/**
+ * What a judge type is: a wake word model, speech to text (transcribe, then
+ * look for the wake word in the transcript) or a listening model (asked
+ * directly whether someone says the wake word).
+ */
+export const JUDGE_KINDS = ["wake_word_model", "speech_to_text", "listening"] as const;
+export type JudgeKind = (typeof JUDGE_KINDS)[number];
 
 export interface JudgeTypeRow {
   id: string;

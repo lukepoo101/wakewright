@@ -16,13 +16,15 @@ import { Alert, Card } from "./ui.tsx";
 // The clip page's "What the judges said": the weighted outcome in a
 // sentence with its score, a warning when it is against the device, then
 // each judge's latest verdict with its weight, score against its
-// threshold, what it heard, why it abstained and its version, and the
+// threshold, what it heard (a transcript, or a listening model's own
+// note), why it abstained and its version, and the
 // judges that have not answered, with why.
 
 type Result = {
   judgeId: string;
   name: string;
   typeName: string;
+  kind: "wake_word_model" | "speech_to_text" | "listening";
   weight: number;
   status: "counted" | "not_counted" | "off" | "deleted";
   current: boolean;
@@ -119,7 +121,13 @@ export function JudgesCard({ clip, judges }: { clip: Clip; judges: Judges }) {
                     )}
                   </div>
                 )}
-                {r.transcript !== null && (
+                {r.transcript !== null && r.kind === "listening" && (
+                  <p className={styles.line}>
+                    <span className={styles.muted}>Its note, not a transcript</span>{" "}
+                    {r.transcript || <span className={styles.muted}>none</span>}
+                  </p>
+                )}
+                {r.transcript !== null && r.kind !== "listening" && (
                   <p className={styles.line}>
                     <span className={styles.muted}>Heard</span>{" "}
                     {r.transcript ? (

@@ -15,7 +15,7 @@ import httpx
 from wakewright_worker import __version__
 from wakewright_worker.judges import FailureReason, JudgeResult
 
-PROTOCOL = 2
+PROTOCOL = 3
 API = "/api/worker/v1"
 
 

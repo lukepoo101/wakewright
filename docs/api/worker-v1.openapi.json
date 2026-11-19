@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Wakewright worker API",
-    "version": "2",
+    "version": "3",
     "description": "How a worker advertises its judge types, claims clips from a Wakewright parent, downloads their audio and returns each judge's result. See docs/workers.md and docs/judges.md.",
     "license": {
       "name": "Apache-2.0",
@@ -133,8 +133,8 @@
         "properties": {
           "protocol": {
             "type": "integer",
-            "description": "The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks 2.",
-            "example": 2
+            "description": "The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks 2 to 3.",
+            "example": 3
           },
           "worker": {
             "type": "object",
@@ -204,7 +204,8 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["wake_word_model", "speech_to_text"]
+            "enum": ["wake_word_model", "speech_to_text", "listening"],
+            "description": "`wake_word_model`; `speech_to_text`: transcribes, then looks for the wake word in the transcript; `listening` (protocol 3): asks an audio model directly whether someone says the wake word."
           },
           "description": {
             "type": "string",
@@ -255,8 +256,8 @@
           },
           "type": {
             "type": "string",
-            "enum": ["text", "secret", "number", "select", "boolean"],
-            "description": "How the form shows it. A secret (an API key) is stored encrypted and never shown again."
+            "enum": ["text", "long_text", "secret", "number", "select", "boolean"],
+            "description": "How the form shows it. `long_text` is text on several lines (protocol 3). A secret (an API key) is stored encrypted and never shown again."
           },
           "help": {
             "type": "string",
@@ -314,8 +315,9 @@
           },
           "placeholder": {
             "type": "string",
-            "maxLength": 200,
-            "default": ""
+            "maxLength": 8000,
+            "default": "",
+            "description": "Shown in the empty field, for example the text an empty value stands for."
           },
           "affectsVerdict": {
             "type": "boolean",

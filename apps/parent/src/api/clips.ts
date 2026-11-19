@@ -12,7 +12,7 @@ import {
   getClipRow,
   listClips,
 } from "../db/clips.ts";
-import { getInstance } from "../db/judges.ts";
+import { getInstance, JUDGE_KINDS } from "../db/judges.ts";
 import type { Judges } from "../judges.ts";
 import type { Judging } from "../judging.ts";
 import { confidence, dissent } from "../outcome.ts";
@@ -60,6 +60,8 @@ const JudgeResult = z
     name: z.string(),
     type: z.string(),
     typeName: z.string(),
+    /** For a listening judge, `transcript` is the model's own note of what it heard. */
+    kind: z.enum(JUDGE_KINDS),
     weight: z.number(),
     /** counted; not_counted (weight 0); off; deleted. */
     status: z.enum(["counted", "not_counted", "off", "deleted"]),
@@ -347,6 +349,7 @@ export function clipRoutes(
             name: a.name,
             type: r.type,
             typeName: a.typeName,
+            kind: types.get(r.type)?.kind ?? "wake_word_model",
             weight: a.weight,
             status,
             current:

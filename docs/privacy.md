@@ -11,7 +11,8 @@ anyone in the room, including guests and children.
   models, and to cloud services **you** set up as judges (below).
 - **Cloud judges send clips to a third party.** A judge of a type marked
   "Sends clips to a third party" (OpenAI-compatible transcription,
-  ElevenLabs Scribe) uploads every clip it judges to that service, from the
+  ElevenLabs Scribe, Audio question) uploads every clip it judges to that
+  service, from the
   worker. None is set up by default; such a judge starts off and turning
   it on asks you to confirm. Before you do, read the service's terms and
   data settings: some plans let the provider keep audio or use it to train
@@ -20,7 +21,9 @@ anyone in the room, including guests and children.
   caps how many clips it sends, and the Workers page can keep the type to
   one worker. Deleting the judge stops it at once; what was already sent is
   under the service's own retention rules. A self-hosted Whisper server
-  through the OpenAI-compatible type keeps clips on your own machines.
+  through the OpenAI-compatible type keeps clips on your own machines. An
+  Audio question judge behind a proxy such as LiteLLM sends the clip on to
+  whichever provider the proxy routes its model to.
 - **Nothing is deleted automatically.** Clips are kept until you delete
   them. (Deleting clips from the UI comes in a later version; until then,
   removing the data volume removes everything.)

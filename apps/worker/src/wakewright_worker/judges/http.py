@@ -1,7 +1,8 @@
-"""What cloud speech-to-text types share: one HTTP upload and its errors.
+"""What cloud judge types share: one HTTP request and its errors.
 
-`upload()` posts the clip as a multipart WAV and turns every way it can
-fail into the right outcome. The rule: an abstention is stored only when
+`upload()` posts the clip as a multipart WAV (speech to text) and
+`post_json()` posts a JSON body (a listening model's chat request); both
+turn every way they can fail into the right outcome. The rule: an abstention is stored only when
 the fault can be this clip; anything about the account, the settings or
 the service pauses the judge instead, so no clip is written off for it.
 
@@ -43,6 +44,8 @@ _QUOTA = re.compile(
 )
 # The 4xx statuses that can be about the clip itself; any other is not.
 _CLIP_STATUSES = frozenset({400, 413, 422})
+# A 400, 413 or 422 that names one of these is about a setting, not the clip.
+SETTING_WORDS = re.compile(r"\bmodel|\blanguage", re.IGNORECASE)
 
 
 class CannotTranscribe(Exception):
@@ -64,13 +67,46 @@ def upload(
     transport: httpx.BaseTransport | None = None,
 ) -> dict[str, Any]:
     """POST the clip as `file` (clip.wav) with `data`; the JSON object answered."""
+    r = send(
+        url,
+        headers=headers,
+        timeout=timeout,
+        transport=transport,
+        data=dict(data),
+        files={"file": ("clip.wav", write_wav(clip.samples), "audio/wav")},
+    )
+    if r.status_code >= 300:
+        fail(r, key)
+    return json_object(r)
+
+
+def post_json(
+    url: str,
+    body: Mapping[str, Any],
+    *,
+    headers: Mapping[str, str],
+    timeout: float,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Response:
+    """POST `body` as JSON; the answer, whatever its status (see `fail`)."""
+    return send(url, headers=headers, timeout=timeout, transport=transport, json=dict(body))
+
+
+def send(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    timeout: float,
+    transport: httpx.BaseTransport | None,
+    **request: Any,
+) -> httpx.Response:
+    """One POST; a timeout or network error becomes a `TemporaryFailure`."""
     try:
         with httpx.Client(timeout=timeout, transport=transport) as http:
-            r = http.post(
+            return http.post(
                 url,
                 headers={"user-agent": f"wakewright-worker/{__version__}", **headers},
-                data=dict(data),
-                files={"file": ("clip.wav", write_wav(clip.samples), "audio/wav")},
+                **request,
             )
     except httpx.TimeoutException:
         raise TemporaryFailure(f"no answer within {timeout:g} s", reason="network") from None
@@ -78,8 +114,10 @@ def upload(
         raise TemporaryFailure(
             f"cannot reach the service: {e.__class__.__name__}", reason="network"
         ) from None
-    if r.status_code >= 300:
-        fail(r, key)
+
+
+def json_object(r: httpx.Response) -> dict[str, Any]:
+    """A successful answer's JSON object, or a `TemporaryFailure`."""
     try:
         body: object = r.json()
     except ValueError:
@@ -130,8 +168,10 @@ def retry_after(r: httpx.Response) -> float | None:
         return None
 
 
-def fail(r: httpx.Response, key: str) -> None:
-    """Raise the outcome for an error answer (see the module docstring)."""
+def fail(r: httpx.Response, key: str, *, setting_words: re.Pattern[str] = SETTING_WORDS) -> None:
+    """Raise the outcome for an error answer (see the module docstring).
+    `setting_words`: wording that marks a 400, 413 or 422 as a refused
+    setting (pause) rather than a refused clip (abstain)."""
     status = r.status_code
     said = message(r, key)
     suffix = f": {said}" if said and status not in (401, 403) else ""
@@ -165,7 +205,7 @@ def fail(r: httpx.Response, key: str) -> None:
         # 405, 409, 410, 415, 423, 451 and the like: the service or the
         # account, not the clip.
         raise TemporaryFailure(f"the service refused the request (HTTP {status}){suffix}")
-    if re.search(r"\bmodel|\blanguage", said, re.IGNORECASE):
+    if setting_words.search(said):
         # A setting is wrong, not the clip: pause until the judge is fixed.
         raise TemporaryFailure(f"the service refused a setting (HTTP {status}){suffix}")
-    raise CannotTranscribe(f"the service could not transcribe this clip (HTTP {status}){suffix}")
+    raise CannotTranscribe(f"the service would not take this clip (HTTP {status}){suffix}")

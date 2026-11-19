@@ -55,6 +55,19 @@ const CLOUD = {
   wakeWords: null,
   settings: CLOUD_SETTINGS,
 };
+const LISTENING = {
+  id: "audio-question",
+  version: "audio-question+1.abcd1234",
+  name: "Audio question",
+  kind: "listening",
+  external: true,
+  wakeWords: null,
+  settings: [
+    field({ key: "base_url", type: "text", required: true }),
+    field({ key: "model", type: "text", required: true, label: "Model" }),
+    field({ key: "prompt", type: "long_text", placeholder: `Does it say "{wake_word}"?\n...` }),
+  ],
+};
 const SECRET = "sk-a-real-looking-secret-0123456789";
 
 type Job = {
@@ -144,6 +157,17 @@ describe("settings against a type's schema", () => {
     expect(checkSettings(select, { fast: "yes" }).ok).toBe(false);
   });
 
+  test("long text keeps its lines, up to a longer limit than text", () => {
+    const schema = [field({ key: "prompt", type: "long_text" }), field({ key: "t", type: "text" })];
+    expect(checkSettings(schema, { prompt: "  one\n\ntwo  " })).toMatchObject({
+      ok: true,
+      values: { prompt: "one\n\ntwo", t: "" },
+    });
+    expect(checkSettings(schema, { prompt: "x".repeat(5000) }).ok).toBe(true);
+    expect(checkSettings(schema, { t: "x".repeat(5000) }).ok).toBe(false);
+    expect(checkSettings(schema, { prompt: "x".repeat(8001) }).ok).toBe(false);
+  });
+
   test("an edit keeps what it leaves out; a secret is removed only when cleared", () => {
     const current = {
       values: { base_url: "https://x/v1", model: "m", timeout: 30 },
@@ -201,12 +225,17 @@ async function parent() {
   });
   await t.collector.pollAll();
 
-  async function claim(name = "w1", types: object[] = [STT, CLOUD], max = 32): Promise<Job[]> {
+  async function claim(
+    name = "w1",
+    types: object[] = [STT, CLOUD],
+    max = 32,
+    protocol = 2,
+  ): Promise<Job[]> {
     const res = await t.api.request("http://localhost/api/worker/v1/jobs/claim", {
       method: "POST",
       headers: { Authorization: `Bearer ${tokenOf(name)}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        protocol: 2,
+        protocol,
         worker: { name: `host-${name}`, version: "0.3.0" },
         types,
         max,
@@ -518,6 +547,37 @@ describe("judges in the API", () => {
     expect(
       (await (await t.request(`/api/v1/judge-tests/${again.test.id}`)).json()).test.state,
     ).toBe("expired");
+  });
+
+  test("a listening judge: offered over protocol 3, weight 0.5, its note on the clip page", async () => {
+    const t = await parent();
+    await t.claim("w1", [STT, LISTENING], 1, 3);
+    const { types } = await t.list();
+    expect(types.find((x) => x.id === LISTENING.id)).toMatchObject({
+      kind: "listening",
+      settings: [{}, {}, { key: "prompt", type: "long_text" }],
+    });
+    t.clock.now += LEASE_MS + 1;
+    const res = await t.request("/api/v1/judges", {
+      json: {
+        name: "Listener",
+        type: LISTENING.id,
+        settings: { base_url: "https://llm.example.test/v1", model: "audio" },
+        enabled: true,
+      },
+    });
+    expect(res.status).toBe(201);
+    const judge = (await res.json()).judge;
+    expect(judge).toMatchObject({ kind: "listening", weight: 0.5, settings: { prompt: "" } });
+    const [job] = await t.claim("w1", [LISTENING], 1, 3);
+    const note = "someone says the wake word";
+    expect(
+      await t.answer(job as Job, [t.result(judge.id, LISTENING, "yes", { transcript: note })]),
+    ).toBe(204);
+    const clip = await (await t.request(`/api/v1/clips/${(job as Job).clipId}`)).json();
+    expect(clip.judges.results).toContainEqual(
+      expect.objectContaining({ judgeId: judge.id, kind: "listening", transcript: note }),
+    );
   });
 
   test("deleting stops it running and counting but keeps its verdicts on the clip page", async () => {

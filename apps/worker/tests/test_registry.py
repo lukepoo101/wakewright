@@ -31,12 +31,12 @@ def test_the_registry_holds_the_configurable_types() -> None:
     for t in build(list(JUDGE_NAMES), CACHE):
         assert TYPE_ID.match(t.id)
         assert t.name
-        assert t.kind in ("wake_word_model", "speech_to_text")
+        assert t.kind in ("wake_word_model", "speech_to_text", "listening")
         assert t.version
         keys = [s.key for s in t.settings]
         assert len(keys) == len(set(keys))
         # Only the cloud types send audio away, and only they have settings.
-        assert t.external == (t.id in ("openai-compatible", "elevenlabs"))
+        assert t.external == (t.id in ("openai-compatible", "elevenlabs", "audio-question"))
         assert bool(t.settings) == t.external
 
 

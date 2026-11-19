@@ -136,8 +136,8 @@ try {
   if (seen.reported.name !== "integration-host")
     throw new Error(`the worker reported itself as ${seen.reported.name}`);
   const judges = seen.reported.types.map((j) => `${j.id}@${j.version}`).sort();
-  if (judges.join(" ") !== "microwakeword@fake+1 openwakeword@fake+1 stt@fake+1")
-    throw new Error(`unexpected judges: ${judges.join(" ")}`);
+  const offered = "audio-question@fake+1 microwakeword@fake+1 openwakeword@fake+1 stt@fake+1";
+  if (judges.join(" ") !== offered) throw new Error(`unexpected judges: ${judges.join(" ")}`);
   if (judging.waiting !== 0 || judging.judged < clips.length)
     throw new Error(`clips left unjudged: ${JSON.stringify(judging)}`);
   console.log(

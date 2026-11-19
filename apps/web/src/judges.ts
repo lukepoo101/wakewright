@@ -79,6 +79,7 @@ export function healthText(j: Judge, now: number): string {
 export const KIND_LABELS: Record<JudgeType["kind"], string> = {
   wake_word_model: "Wake word model",
   speech_to_text: "Speech to text",
+  listening: "Listening model",
 };
 
 /** A weight as the UI shows it: "1.0", "0.3", "2.25". */

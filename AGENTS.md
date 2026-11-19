@@ -51,7 +51,8 @@ Do not add `check` or `fmt` scripts to a `package.json`: `bun check` and
   it a headless core with no Docker-only assumptions (paths from config,
   `pathlib`, dependencies with Windows wheels). A judge type subclasses
   `JudgeType` in `judges/__init__.py` (speech to text: `SpeechToTextJudge`
-  in `judges/speech.py`), is registered in `judges/registry.py`, and
+  in `judges/speech.py`; listening: `ListeningJudge` in
+  `judges/listening.py`), is registered in `judges/registry.py`, and
   changes its `version` when its model or logic changes
   ([docs/judges.md](docs/judges.md)). The parent has no code per type.
 - Never commit or bake a model into an image: judges download pinned,

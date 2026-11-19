@@ -21,7 +21,7 @@ it always puts the settings back and confirms they are back.
 > stores them, and lets you browse and play them in a web UI. A worker
 > judges each clip with the judges you configure (openWakeWord,
 > microWakeWord, local speech to text, and optional cloud speech-to-text
-> APIs), weighs their votes into an outcome, and the UI shows the uncertain
+> and audio-model APIs), weighs their votes into an outcome, and the UI shows the uncertain
 > clips and where the outcome disagrees with the device. A collection
 > session turns one tablet's sensitivity right up for a few minutes to
 > gather many clips at once. Labelling, datasets and training are not built yet. Two images,
@@ -53,7 +53,7 @@ The **parent** is one TypeScript process on [Bun](https://bun.com): a
 [Hono](https://hono.dev) API, the React SPA it serves, and SQLite. The
 **worker** is a separate Python process that judges clips with plugin
 judge types (openWakeWord, microWakeWord, speech to text, cloud
-transcription APIs) and needs no open port
+transcription APIs, audio models asked about the wake word) and needs no open port
 ([docs/worker.md](docs/worker.md), [docs/judges.md](docs/judges.md)); training comes in later versions. See
 [docs/architecture.md](docs/architecture.md), and
 [docs/design/](docs/design/) for where the project is going and why.

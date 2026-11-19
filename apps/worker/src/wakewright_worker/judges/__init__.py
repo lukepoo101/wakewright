@@ -11,7 +11,9 @@ A type has:
 
 - `id`: stable, `a-z0-9_.-`; the parent stores verdicts under it.
 - `name`, `description`: shown on the Judges page.
-- `kind`: `"wake_word_model"` or `"speech_to_text"`.
+- `kind`: `"wake_word_model"`, `"speech_to_text"` (transcribe, then look for
+  the wake word in the transcript) or `"listening"` (ask an audio model
+  directly whether someone says the wake word).
 - `version`: changes whenever its model or logic changes in a way that can
   change a verdict, so the parent judges every clip again.
 - `settings`: a declarative schema (`Setting`) the parent renders as a form.
@@ -39,8 +41,8 @@ from wakewright_worker.audio import Clip
 from wakewright_worker.models import ModelFile
 
 Verdict = Literal["yes", "no", "abstain"]
-Kind = Literal["wake_word_model", "speech_to_text"]
-SettingType = Literal["text", "secret", "number", "select", "boolean"]
+Kind = Literal["wake_word_model", "speech_to_text", "listening"]
+SettingType = Literal["text", "long_text", "secret", "number", "select", "boolean"]
 FailureReason = Literal["auth", "rate_limit", "quota", "network", "server", "other"]
 SettingValue = str | float | bool | None
 Settings = Mapping[str, SettingValue]
