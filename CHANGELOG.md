@@ -9,6 +9,17 @@ break things and says how to upgrade.
 
 ## 0.5.0 - 2026-11-19
 
+A third kind of judge, the **listening model**, asks a model that accepts
+audio whether someone says the wake word, instead of transcribing the clip
+and looking for it in the transcript. The first type, **Audio question**,
+works through any OpenAI-compatible chat API (OpenAI's audio models, or
+Gemini and others behind a LiteLLM proxy). New listening judges weigh 0.5
+and start off. See [docs/judges.md](docs/judges.md#the-listening-type).
+
+Upgrading: the worker now speaks worker protocol 3. A 0.5 parent still
+serves a 0.4 worker, but a 0.4 parent refuses a 0.5 worker (426), so
+upgrade the parent first or both together. Nothing is judged again.
+
 ### New features
 
 - Add listening judges that ask an audio model whether someone says the wake word by @lukepoo101 in https://github.com/lukepoo101/wakewright/pull/52
