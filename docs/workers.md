@@ -8,8 +8,11 @@ another. The exact wire
 format is [`docs/api/worker-v1.openapi.json`](api/worker-v1.openapi.json)
 (OpenAPI 3.1), which is the source of truth; the decisions behind it are in
 [ADR 0016](adr/0016-judging-queue-and-agreement.md) and
-[ADR 0019](adr/0019-configurable-weighted-judges.md). This is protocol 2
-(Wakewright 0.3); the path is still `/api/worker/v1`.
+[ADR 0019](adr/0019-configurable-weighted-judges.md). This is protocol 3
+(Wakewright 0.5); the path is still `/api/worker/v1`. Protocol 3 adds the
+`listening` kind and the `long_text` setting type to what a worker may
+offer ([ADR 0021](adr/0021-listening-judges.md)); nothing else changed, so
+a parent that speaks 3 still serves a protocol 2 worker.
 
 ## Access
 
@@ -45,7 +48,9 @@ override the one inside. It holds the token: never log it.
 ## Judge types and judges
 
 A worker offers **judge types**: kinds of judge it can run, each with an
-id, a version, a name, a kind (`wake_word_model` or `speech_to_text`), the
+id, a version, a name, a kind (`wake_word_model`; `speech_to_text`, which
+transcribes and looks for the wake word in the transcript; or `listening`,
+which asks an audio model directly whether someone says it), the
 wake words it has models for and a **settings schema**. The owner sets up
 **judges** (instances) of those types on the parent's Judges page, filling
 in the form the schema describes; a job names the judges to run on its
@@ -60,7 +65,7 @@ All paths are under `/api/worker/v1`.
 
    ```json
    {
-     "protocol": 2,
+     "protocol": 3,
      "worker": { "name": "judge-laptop", "version": "0.3.0" },
      "types": [
        {
@@ -103,8 +108,9 @@ All paths are under `/api/worker/v1`.
    ```
 
    `wakeWords` lists the wake words a type has a model for, or `null` for
-   any. A setting has a `key`, `label`, `type` (`text`, `secret`,
-   `number`, `select`, `boolean`) and optionally `help`, `default`,
+   any. A setting has a `key`, `label`, `type` (`text`, `long_text` for
+   text on several lines such as a prompt, `secret`, `number`, `select`,
+   `boolean`) and optionally `help`, `default`,
    `required`, `options` (for a select), `minimum`, `maximum`,
    `placeholder` and `affectsVerdict` (default true; a secret never does).
    `external` says the type sends clips off the worker, so the UI warns

@@ -147,8 +147,8 @@ class FakeParent:
                 if forced:
                     detail = {"error": "forced", "supported": {"min": 1, "max": 1}}
                     return self._reply(forced, detail)
-                if body.get("protocol") != 2:
-                    return self._reply(426, {"supported": {"min": 2, "max": 2}})
+                if body.get("protocol") not in (2, 3):
+                    return self._reply(426, {"supported": {"min": 2, "max": 3}})
                 offered = {t["id"] for t in body["types"]}
                 deadline = time.monotonic() + min(float(body["waitSeconds"]), 0.3)
                 with parent.lock:
@@ -250,3 +250,64 @@ class FakeJudge(JudgeType):
         if self.fail is not None:
             raise self.fail
         return self.answer
+
+
+# A cloud judge's service: answers each POST with the next reply, and
+# records the requests (test_cloud.py, test_listening.py).
+@dataclass
+class Reply:
+    status: int = 200
+    body: Any = field(default_factory=lambda: {"text": "Hey Jarvis, lights on."})
+    headers: dict[str, str] = field(default_factory=dict[str, str])
+    delay: float = 0.0
+
+
+@dataclass
+class FakeService:
+    replies: list[Reply] = field(default_factory=list[Reply])
+    requests: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
+    server: ThreadingHTTPServer | None = None
+
+    @property
+    def url(self) -> str:
+        assert self.server is not None
+        host, port = self.server.server_address[:2]
+        return f"http://{host!s}:{port}"
+
+    def start(self) -> FakeService:
+        service = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+                pass
+
+            def do_POST(self) -> None:
+                body = self.rfile.read(int(self.headers.get("content-length") or 0))
+                service.requests.append(
+                    {"path": self.path, "headers": dict(self.headers.items()), "body": body}
+                )
+                reply = service.replies.pop(0) if service.replies else Reply()
+                if reply.delay:
+                    threading.Event().wait(reply.delay)
+                data = (
+                    reply.body.encode()
+                    if isinstance(reply.body, str)
+                    else json.dumps(reply.body).encode()
+                )
+                self.send_response(reply.status)
+                self.send_header("content-type", "application/json")
+                for k, v in reply.headers.items():
+                    self.send_header(k, v)
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True).start()
+        return self
+
+    def stop(self) -> None:
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()

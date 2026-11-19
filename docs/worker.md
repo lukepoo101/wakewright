@@ -9,15 +9,16 @@ needs no open port: it connects to the parent, never the other way round.
 The protocol is in [workers.md](workers.md); the decisions behind this
 worker are in [ADR 0017](adr/0017-the-worker.md).
 
-| Judge type          | What it does                                                           | Says yes when                                        |
-| ------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- |
-| `openwakeword`      | runs openWakeWord's pretrained model for the clip's wake word          | its highest score in the clip is 0.5 or more         |
-| `microwakeword`     | runs the ESPHome microWakeWord model for the clip's wake word          | it fires, by the model's own cutoff and window       |
-| `stt`               | transcribes the clip with NVIDIA Parakeet TDT 0.6B v2 (English) on CPU | the transcript contains the wake word as whole words |
-| `openai-compatible` | sends the clip to an OpenAI-compatible transcription API you configure | the same, from the service's transcript              |
-| `elevenlabs`        | sends the clip to ElevenLabs Scribe with your API key                  | the same, from the service's transcript              |
+| Judge type          | What it does                                                                    | Says yes when                                        |
+| ------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `openwakeword`      | runs openWakeWord's pretrained model for the clip's wake word                   | its highest score in the clip is 0.5 or more         |
+| `microwakeword`     | runs the ESPHome microWakeWord model for the clip's wake word                   | it fires, by the model's own cutoff and window       |
+| `stt`               | transcribes the clip with NVIDIA Parakeet TDT 0.6B v2 (English) on CPU          | the transcript contains the wake word as whole words |
+| `openai-compatible` | sends the clip to an OpenAI-compatible transcription API you configure          | the same, from the service's transcript              |
+| `elevenlabs`        | sends the clip to ElevenLabs Scribe with your API key                           | the same, from the service's transcript              |
+| `audio-question`    | asks an audio model, through an OpenAI-compatible chat API, about the wake word | the model answers that someone says the wake word    |
 
-The last two run only for judges you add on the Judges page, with their
+The last three run only for judges you add on the Judges page, with their
 own settings and API keys, and send clips to that service; they need
 outbound HTTPS from the worker.
 
@@ -91,20 +92,20 @@ Linux, `~/Library/Caches/wakewright-worker` on macOS,
 
 ## Configuration
 
-| Variable                          | Default            | Meaning                                                                                                              |
-| --------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `WAKEWRIGHT_WORKER__PAIRING`      | none               | The pairing string from the Workers page (or `run --pairing`)                                                        |
-| `WAKEWRIGHT_WORKER__PAIRING_FILE` | none               | A file holding the pairing string                                                                                    |
-| `WAKEWRIGHT_WORKER__PARENT_URL`   | from the pairing   | The parent's address; replaces the one in a pairing string                                                           |
-| `WAKEWRIGHT_WORKER__TOKEN`        | from the pairing   | This worker's token, instead of a pairing string                                                                     |
-| `WAKEWRIGHT_WORKER__TOKEN_FILE`   | none               | A file holding the token, instead of `TOKEN`                                                                         |
-| `WAKEWRIGHT_WORKER__CACHE_DIR`    | the per-user cache | Where models are downloaded (`/cache` in the image)                                                                  |
-| `WAKEWRIGHT_WORKER__NAME`         | the host name      | What it reports itself as, shown beside the worker's name                                                            |
-| `WAKEWRIGHT_WORKER__JUDGES`       | all five           | The judge types it offers: a comma-separated subset of `openwakeword,microwakeword,stt,openai-compatible,elevenlabs` |
-| `WAKEWRIGHT_WORKER__BATCH`        | `8`                | Clips claimed at a time (1 to 32); lower it on a slow machine                                                        |
-| `WAKEWRIGHT_WORKER__WAIT_SECONDS` | `25`               | How long a claim waits for new clips (0 to 60)                                                                       |
-| `WAKEWRIGHT_WORKER__LOG_FORMAT`   | `json`             | `json` (one object per line) or `text`                                                                               |
-| `WAKEWRIGHT_WORKER__LOG_LEVEL`    | `INFO`             | `DEBUG`, `INFO`, `WARNING` or `ERROR`                                                                                |
+| Variable                          | Default            | Meaning                                                                                                                             |
+| --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `WAKEWRIGHT_WORKER__PAIRING`      | none               | The pairing string from the Workers page (or `run --pairing`)                                                                       |
+| `WAKEWRIGHT_WORKER__PAIRING_FILE` | none               | A file holding the pairing string                                                                                                   |
+| `WAKEWRIGHT_WORKER__PARENT_URL`   | from the pairing   | The parent's address; replaces the one in a pairing string                                                                          |
+| `WAKEWRIGHT_WORKER__TOKEN`        | from the pairing   | This worker's token, instead of a pairing string                                                                                    |
+| `WAKEWRIGHT_WORKER__TOKEN_FILE`   | none               | A file holding the token, instead of `TOKEN`                                                                                        |
+| `WAKEWRIGHT_WORKER__CACHE_DIR`    | the per-user cache | Where models are downloaded (`/cache` in the image)                                                                                 |
+| `WAKEWRIGHT_WORKER__NAME`         | the host name      | What it reports itself as, shown beside the worker's name                                                                           |
+| `WAKEWRIGHT_WORKER__JUDGES`       | all six            | The judge types it offers: a comma-separated subset of `openwakeword,microwakeword,stt,openai-compatible,elevenlabs,audio-question` |
+| `WAKEWRIGHT_WORKER__BATCH`        | `8`                | Clips claimed at a time (1 to 32); lower it on a slow machine                                                                       |
+| `WAKEWRIGHT_WORKER__WAIT_SECONDS` | `25`               | How long a claim waits for new clips (0 to 60)                                                                                      |
+| `WAKEWRIGHT_WORKER__LOG_FORMAT`   | `json`             | `json` (one object per line) or `text`                                                                                              |
+| `WAKEWRIGHT_WORKER__LOG_LEVEL`    | `INFO`             | `DEBUG`, `INFO`, `WARNING` or `ERROR`                                                                                               |
 
 Leave `stt` out of `JUDGES` on a machine with little memory: the wake word
 models need a few megabytes and the cloud types nothing. Leave a cloud

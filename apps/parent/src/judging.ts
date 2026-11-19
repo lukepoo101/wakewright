@@ -64,7 +64,12 @@ import { routedTypes, toRecord, type WorkerIdentity, type WorkerRecord } from ".
 //   server stops.
 
 /** Wire protocol versions this parent speaks. */
-export const PROTOCOL = { min: 2, max: 2 } as const;
+/**
+ * Wire protocol versions this parent speaks. 3 adds the `listening` kind
+ * and the `long_text` setting type to what a worker may offer; a protocol 2
+ * worker's messages are valid protocol 3, so it is still served.
+ */
+export const PROTOCOL = { min: 2, max: 3 } as const;
 export const LEASE_MS = 2 * 60_000;
 /** A worker counts as connected while polling, or this long after it was last seen. */
 export const CONNECTED_MS = 2 * 60_000;

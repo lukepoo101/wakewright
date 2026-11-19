@@ -20,7 +20,14 @@ from pathlib import Path
 
 PREFIX = "WAKEWRIGHT_WORKER__"
 # The judge types this worker offers by default: judges/registry.py.
-JUDGE_NAMES = ("openwakeword", "microwakeword", "stt", "openai-compatible", "elevenlabs")
+JUDGE_NAMES = (
+    "openwakeword",
+    "microwakeword",
+    "stt",
+    "openai-compatible",
+    "elevenlabs",
+    "audio-question",
+)
 # The pairing string the parent's Workers tab shows (docs/workers.md):
 # "wakewright-pair:1:" and base64url (no padding) of {"url": ..., "token": ...}.
 PAIRING_PREFIX = "wakewright-pair:"

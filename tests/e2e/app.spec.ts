@@ -223,7 +223,8 @@ test("a judge added on the Judges page judges clips; a new weight changes outcom
     const dialog = page.getByRole("dialog");
     // The type is a drop-down; the chosen type says what it is below it.
     const typeSelect = dialog.getByLabel("Type", { exact: true });
-    await expect(typeSelect.locator("optgroup")).toHaveCount(2);
+    await expect(typeSelect.locator("optgroup")).toHaveCount(3);
+    await expect(typeSelect.locator('optgroup[label="Listening model"]')).toHaveCount(1);
     await typeSelect.selectOption({
       label: "OpenAI-compatible transcription (fake) (third party)",
     });
@@ -289,6 +290,67 @@ test("a judge added on the Judges page judges clips; a new weight changes outcom
     await card.getByRole("button", { name: "Delete Cloud" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Delete judge" }).click();
     await expect(page.getByRole("article", { name: "Cloud" })).toHaveCount(0);
+  } finally {
+    controller.abort();
+    await worker;
+  }
+});
+
+test("a listening judge starts off, is tested on one clip, and its note shows as a note", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  const controller = new AbortController();
+  const worker = runFakeWorker({
+    parentUrl: baseURL ?? "",
+    token: WORKER_TOKEN,
+    name: "e2e-worker",
+    waitSeconds: 2,
+    signal: controller.signal,
+  });
+  try {
+    await page.goto("/judges");
+    await page.getByRole("button", { name: "Add judge" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+      .getByLabel("Type", { exact: true })
+      .selectOption({ label: "Audio question (fake) (third party)" });
+    await expect(dialog.getByText(/^Listening model/)).toBeVisible();
+    // A new listening judge weighs 0.5 and, sending clips away, starts off.
+    await expect(dialog.getByLabel("Weight")).toHaveValue("0.5");
+    await expect(dialog.getByLabel(/^On: run it/)).not.toBeChecked();
+    // An empty prompt stands for the built-in one, which can be copied to edit.
+    const prompt = dialog.getByLabel(/^Prompt/);
+    await expect(prompt).toHaveValue("");
+    await dialog.getByRole("button", { name: "Edit a copy of the built-in text" }).click();
+    await expect(prompt).toHaveValue(/clearly says the wake word "\{wake_word\}"/);
+    await dialog.getByRole("button", { name: "Use the built-in text" }).click();
+    await expect(prompt).toHaveValue("");
+    await dialog.getByLabel("Name").fill("Listener");
+    await dialog.getByLabel(/^API base URL/).fill("https://llm.example.test/v1");
+    await dialog.getByLabel(/^Model/).fill("audio-model");
+    await dialog.getByRole("button", { name: "Add judge" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const card = page.getByRole("article", { name: "Listener" });
+    await expect(card).toContainText("Audio question (fake) · Listening model");
+    await expect(card.getByText("Prompt: built-in")).toBeVisible();
+    await expect(card).toContainText("Off · not run or counted");
+
+    await card.getByRole("button", { name: "Test" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Run test" }).click();
+    const result = page.getByRole("dialog").getByRole("status");
+    await expect(result).toContainText("Its note on what it heard", { timeout: 15_000 });
+    await result.getByRole("link", { name: "open the clip" }).click();
+    await expect(page.getByRole("heading", { name: "Listener", exact: true })).toBeVisible();
+    await expect(page.getByText("Its note, not a transcript")).toBeVisible();
+    await expect(page.getByText("Turned off · not counted")).toBeVisible();
+
+    // Deleted again, as at the start.
+    await page.goto("/judges");
+    await page.getByRole("button", { name: "Delete Listener" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete judge" }).click();
+    await expect(page.getByRole("article", { name: "Listener" })).toHaveCount(0);
   } finally {
     controller.abort();
     await worker;

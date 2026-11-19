@@ -116,6 +116,13 @@
   width: 100%;
 }
 
+.textarea {
+  min-height: 12rem;
+  resize: vertical;
+  line-height: 1.45;
+  font-size: var(--text-small);
+}
+
 .input[aria-invalid="true"] {
   border-color: var(--color-error);
 }

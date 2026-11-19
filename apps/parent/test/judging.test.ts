@@ -201,7 +201,7 @@ describe("worker API: access", () => {
       const res = await t.worker("/jobs/claim", { json });
       expect(res.status).toBe(426);
       const body = await res.json();
-      expect(body).toMatchObject({ error: "unsupported_protocol", supported: { min: 2, max: 2 } });
+      expect(body).toMatchObject({ error: "unsupported_protocol", supported: { min: 2, max: 3 } });
       expect(body.message).toContain("same release");
     }
     expect((await t.worker("/jobs/claim", { json: { judges: [] } })).status).toBe(400);

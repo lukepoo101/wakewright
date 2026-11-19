@@ -4,7 +4,16 @@
 // no code per type: any type's form, validation and re-judging follow from
 // its schema.
 
-export type SettingType = "text" | "secret" | "number" | "select" | "boolean";
+/** "long_text" is text shown as several lines (a prompt). */
+export const SETTING_TYPES = [
+  "text",
+  "long_text",
+  "secret",
+  "number",
+  "select",
+  "boolean",
+] as const;
+export type SettingType = (typeof SETTING_TYPES)[number];
 export type SettingValue = string | number | boolean | null;
 
 export interface SettingField {
@@ -23,6 +32,7 @@ export interface SettingField {
 }
 
 export const TEXT_MAX = 2000;
+export const LONG_TEXT_MAX = 8000;
 export const SECRET_MAX = 4000;
 
 /** A judge's settings, split: plain values, and secret ones (never shown again). */
@@ -81,10 +91,12 @@ export function checkSettings(
 function checkValue(f: SettingField, raw: unknown): { value: SettingValue } | { error: string } {
   const empty = raw === null || raw === undefined || raw === "";
   switch (f.type) {
-    case "text": {
+    case "text":
+    case "long_text": {
       if (!empty && typeof raw !== "string") return { error: "Enter text." };
       const value = empty ? "" : (raw as string).trim();
-      if (value.length > TEXT_MAX) return { error: `At most ${TEXT_MAX} characters.` };
+      const max = f.type === "long_text" ? LONG_TEXT_MAX : TEXT_MAX;
+      if (value.length > max) return { error: `At most ${max} characters.` };
       if (f.required && !value) return { error: `Enter the ${lower(f.label)}.` };
       return { value };
     }

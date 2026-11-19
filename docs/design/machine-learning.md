@@ -56,6 +56,14 @@ answers through words rather than sound, so it catches clips that sound
 right but are not (and stumbles on homophones and mumbling). None of them
 can tell a person from a television saying the same word.
 
+Optional judges you add on the Judges page widen this: cloud
+speech-to-text types, and **listening** judges, which give the clip to an
+audio model and ask it directly whether someone says the wake word. A
+listening judge does not stumble on spelling the way a transcript does,
+but leans towards yes when asked about a word, so its built-in prompt is
+written against that and it starts at a lower weight
+([ADR 0021](../adr/0021-listening-judges.md)).
+
 ### Models and licences
 
 | Model                             | Licence                                  | Consequence                                                             |

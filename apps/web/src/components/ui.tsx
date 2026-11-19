@@ -2,6 +2,7 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type TextareaHTMLAttributes,
   useEffect,
   useId,
 } from "react";
@@ -88,6 +89,50 @@ export function TextField({
           {hint}
         </span>
       )}
+    </div>
+  );
+}
+
+/** A TextField on several lines, for long text such as a prompt. */
+export function TextAreaField({
+  label,
+  hint,
+  error,
+  footer,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label: string;
+  hint?: ReactNode;
+  error?: string;
+  /** Below the hint, for example a button that fills the field. */
+  footer?: ReactNode;
+}) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  return (
+    <div className={styles.field}>
+      <label htmlFor={id} className={styles.label}>
+        {label}
+      </label>
+      <textarea
+        id={id}
+        className={`${styles.input} ${styles.textarea}`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={[errorId, hintId].filter(Boolean).join(" ") || undefined}
+        {...props}
+      />
+      {error && (
+        <span id={errorId} className={styles.fieldError}>
+          {error}
+        </span>
+      )}
+      {hint && (
+        <span id={hintId} className={styles.hint}>
+          {hint}
+        </span>
+      )}
+      {footer}
     </div>
   );
 }

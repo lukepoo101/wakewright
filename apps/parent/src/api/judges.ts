@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
-import type { InstanceRow } from "../db/judges.ts";
-import type { SettingValue } from "../judge-settings.ts";
+import { type InstanceRow, JUDGE_KINDS } from "../db/judges.ts";
+import { SETTING_TYPES, type SettingValue } from "../judge-settings.ts";
 import { DAILY_LIMIT_MAX, type JudgeFailure, type Judges, NAME_MAX } from "../judges.ts";
 import type { Judging } from "../judging.ts";
 import { DEFAULT_RULE, DEFAULT_WEIGHT, MAX_WEIGHT } from "../outcome.ts";
@@ -20,7 +20,7 @@ const Field = z
   .object({
     key: z.string(),
     label: z.string(),
-    type: z.enum(["text", "secret", "number", "select", "boolean"]),
+    type: z.enum(SETTING_TYPES),
     help: z.string(),
     default: SettingValueSchema,
     required: z.boolean(),
@@ -32,7 +32,7 @@ const Field = z
   })
   .openapi("JudgeSettingField");
 
-const Kind = z.enum(["wake_word_model", "speech_to_text"]);
+const Kind = z.enum(JUDGE_KINDS);
 
 const TypeView = z
   .object({
@@ -105,7 +105,11 @@ const List = z.object({
   rule: Rule,
   defaults: z.object({
     rule: Rule,
-    weight: z.object({ speech_to_text: z.number(), wake_word_model: z.number() }),
+    weight: z.object({
+      speech_to_text: z.number(),
+      wake_word_model: z.number(),
+      listening: z.number(),
+    }),
     maxWeight: z.number(),
   }),
 });

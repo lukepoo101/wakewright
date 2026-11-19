@@ -48,12 +48,19 @@ def _elevenlabs(_cache: ModelCache) -> JudgeType:
     return ElevenLabsJudge()
 
 
+def _audio_question(_cache: ModelCache) -> JudgeType:
+    from wakewright_worker.judges.audio_question import AudioQuestionJudge  # noqa: PLC0415
+
+    return AudioQuestionJudge()
+
+
 BUILTIN: dict[str, TypeFactory] = {
     "openwakeword": _openwakeword,
     "microwakeword": _microwakeword,
     "stt": _parakeet,
     "openai-compatible": _openai_compatible,
     "elevenlabs": _elevenlabs,
+    "audio-question": _audio_question,
 }
 
 

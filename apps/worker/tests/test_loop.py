@@ -55,7 +55,7 @@ def test_judges_a_job_and_posts_every_result(parent: FakeParent) -> None:
     stop(w, t)
 
     claim = parent.claims[0]
-    assert claim["protocol"] == 2
+    assert claim["protocol"] == 3
     assert claim["worker"]["name"] == "test-worker"
     assert [(t["id"], t["version"], t["wakeWords"], t["kind"]) for t in claim["types"]] == [
         ("a", "a1", ["alexa"], "wake_word_model"),

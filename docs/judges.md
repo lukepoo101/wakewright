@@ -8,11 +8,20 @@ decision behind it is [ADR 0019](adr/0019-configurable-weighted-judges.md).
 
 ## Judge types and judges
 
-- A **judge type** is code in the worker that can judge a clip: a wake word
-  model (openWakeWord, microWakeWord) or a speech-to-text backend
-  (Parakeet on the worker's CPU, any OpenAI-compatible transcription API,
-  ElevenLabs Scribe). Each worker advertises the types it offers, with a
-  description of their settings.
+- A **judge type** is code in the worker that can judge a clip. It is one
+  of three **kinds**:
+  - a **wake word model** (openWakeWord, microWakeWord) scores the clip
+    against a model of the wake word;
+  - **speech to text** (Parakeet on the worker's CPU, any OpenAI-compatible
+    transcription API, ElevenLabs Scribe) asks "what does this audio
+    say?", then Wakewright checks the transcript for the wake word;
+  - a **listening model** (Audio question, through any OpenAI-compatible
+    chat API) asks a model that accepts audio "does someone in this audio
+    say the wake word?" and takes its yes, no or unsure.
+
+  Each worker advertises the types it offers, with a description of their
+  settings.
+
 - A **judge** is what you set up on the Judges page: a name, a type, that
   type's settings (for example a model and an API key), a weight, an
   optional daily limit and an on/off switch. You can have several judges
@@ -42,7 +51,9 @@ Each judge's latest answer on a clip counts once:
    | **Uncertain**           | anything in between                                                                             |
 
 The defaults are a margin of **0.5** and a minimum of **1.0**, the weight
-of one speech-to-text judge. With the default weights:
+of one speech-to-text judge (or of two listening judges). A new judge
+starts at its kind's default weight: 1.0 for speech to text, 0.5 for a
+listening model and 0.3 for a wake word model. With the default weights:
 
 | Speech to text | openWakeWord | microWakeWord | Score                   | Outcome             |
 | -------------- | ------------ | ------------- | ----------------------- | ------------------- |
@@ -133,6 +144,74 @@ All speech-to-text types decide the same way: yes when the transcript,
 lowercased with punctuation removed, contains the wake word as whole words
 (`judges/speech.py`).
 
+## The listening type
+
+| Type                                                       | Settings                                                                | Notes                                                                                                                   |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Audio question (OpenAI-compatible chat) (`audio-question`) | API base URL †, API key, model †, prompt †, reasoning effort †, timeout | `POST {base}/chat/completions` with the clip as an `input_audio` part; OpenAI's audio models, or Gemini through LiteLLM |
+
+The request is one user message with two content parts: the clip,
+`{"type": "input_audio", "input_audio": {"data": "<base64 WAV>", "format": "wav"}}`,
+and the prompt as text. A LiteLLM proxy turns the audio part into inline
+audio for Gemini. No temperature is sent. The model must answer with JSON:
+
+```json
+{ "said": "a few words on what it heard", "heard": "yes" }
+```
+
+- `heard` **yes** or **no** is the verdict; **unsure** is a "can't tell",
+  with the model's note kept.
+- `said` is stored where a transcript would be, and the clip page shows it
+  as the model's note, not a transcript: it is the model's description,
+  not a word-for-word record.
+- The request asks for this JSON Schema as structured output
+  (`response_format` of type `json_schema`). An endpoint that refuses it
+  (a 400 or 422 naming `response_format`, a JSON schema or structured
+  output) is asked again without it, and from then on, while the worker
+  runs, always without it. Either way the answer is read leniently: in a
+  code fence, with text around it, `heard` in any case.
+- An answer that still cannot be read is a "can't tell" for that clip,
+  with what came back. Three in a row from one judge's settings mean the
+  model is not following the contract at all (the wrong model, or a
+  prompt asking for something else), so after that the judge is paused
+  ("Failing: the model's last 3 answers were not the JSON asked for") and
+  clips are no longer written off, until an answer can be read again.
+- **Reasoning effort** is sent as `reasoning_effort` only when set; "Leave
+  to the model" sends nothing. A service that refuses the value (LiteLLM
+  answers 400 "Invalid `reasoning_effort`") pauses the judge with its
+  message. It can change answers, so changing it judges again.
+- **Prompt**: empty uses the built-in prompt, which the form shows and can
+  copy for you to edit. `{wake_word}` is replaced with the wake word as
+  said, from its id (`okay_nabu` becomes "Okay Nabu"), the same
+  normalisation speech to text matches against. A custom prompt must still
+  ask for the JSON above. The built-in prompt's hash is part of the type's
+  version, so a release that changes it judges every clip again with the
+  judges that use it.
+- Errors go through the same rules as the speech-to-text types (the table
+  above): no credit or quota pauses the judge, a 404 is a wrong address or
+  model, and a 400 that names the model, the reasoning effort or the
+  response format is a refused setting.
+
+### Listening or speech to text?
+
+Speech to text answers "what does this audio say?"; a single misheard
+word ("Alexa" written as "Alexis") turns a clip with the wake word into a
+no. A listening model is asked about the wake word itself, so it can say
+yes when it hears the wake word but would transcribe it wrongly. Use both:
+they fail differently, which is what weighting is for.
+
+The catch is **acquiescence bias**: a model asked "does this contain X?"
+leans towards yes, and more so on unclear audio. The built-in prompt is
+written against it. It says the wake word is as likely to be absent as
+present, that only the whole word clearly spoken counts, that a
+similar-sounding word, part of the word or the word only implied is "no",
+that speech from a TV or speaker counts the same as a person in the room,
+and to answer "unsure" rather than guess. That is also why a listening
+judge starts at weight 0.5, below speech to text: check how it votes on
+clips you have listened to before you trust it more. Turn the judge on,
+let it work through the backlog, and compare its verdicts with the others
+on the clip list's dissent filter.
+
 ## Write a judge type
 
 Judge types are Python classes in the worker (`apps/worker`), registered in
@@ -146,7 +225,7 @@ The interface (`judges/__init__.py`):
 class JudgeType(ABC):
     id: str                 # stable, a-z 0-9 _ . -; verdicts are kept under it
     name: str               # shown on the Judges page
-    kind: Kind              # "wake_word_model" or "speech_to_text"
+    kind: Kind              # "wake_word_model", "speech_to_text" or "listening"
     version: str            # change it when a verdict could change
     description: str = ""
     external: bool = False  # True if it sends audio off the worker
@@ -165,11 +244,17 @@ retry_after=)` when it cannot answer now (`reason` is `auth`, `rate_limit`,
 `quota`, `network`, `server` or `other`). Never put a secret in a message.
 Any other exception becomes an abstention for that clip.
 
-A `Setting` is `Setting(key, label, type="text" | "secret" | "number" |
-"select" | "boolean", help=, default=, required=, options=, minimum=,
-maximum=, placeholder=, affects_verdict=)`. Secrets never affect the
-verdict; set `affects_verdict=False` on anything else that cannot (a
-timeout).
+A `Setting` is `Setting(key, label, type="text" | "long_text" | "secret" |
+"number" | "select" | "boolean", help=, default=, required=, options=,
+minimum=, maximum=, placeholder=, affects_verdict=)`. `long_text` is text
+on several lines, up to 8000 characters (a prompt); its `placeholder` can
+be the text an empty value stands for, and the form offers to copy it.
+Secrets never affect the verdict; set `affects_verdict=False` on anything
+else that cannot (a timeout).
+
+A listening type subclasses `ListeningJudge` (`judges/listening.py`),
+which holds the built-in prompt, the answer contract and its parsing; it
+implements `judge` with its own request.
 
 ### A speech-to-text provider in one file
 

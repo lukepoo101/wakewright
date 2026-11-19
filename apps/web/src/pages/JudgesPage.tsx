@@ -15,6 +15,7 @@ import {
   EmptyState,
   Loading,
   PageHeader,
+  TextAreaField,
   TextField,
 } from "../components/ui.tsx";
 import { ago, shortDateTime, useNow } from "../format.ts";
@@ -284,6 +285,12 @@ function SettingsSummary({ judge, type }: { judge: Judge; type: JudgeType }) {
 }
 
 function formatValue(v: SettingValue, f: SettingField): string {
+  if (f.type === "long_text") {
+    // A prompt: the start of it, or what an empty one stands for.
+    if (v === null || v === "") return f.placeholder ? "built-in" : "none";
+    const text = String(v).replace(/\s+/g, " ");
+    return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+  }
   if (v === null || v === "") return "none";
   if (typeof v === "boolean") return v ? "yes" : "no";
   if (f.type === "select") return f.options.find((o) => o.value === v)?.label ?? String(v);
@@ -299,7 +306,7 @@ function RuleCard({ data }: { data: JudgeList }) {
   const counted = data.judges.filter((j) => j.enabled && j.weight > 0);
   const [votes, setVotes] = useState<Record<string, Vote["verdict"]>>({});
   const voteOf = (j: Judge): Vote["verdict"] =>
-    votes[j.id] ?? (j.kind === "speech_to_text" ? "yes" : "no");
+    votes[j.id] ?? (j.kind === "wake_word_model" ? "no" : "yes");
   const rule: OutcomeRule = {
     margin: clampNumber(margin, 0, 1, data.rule.margin),
     minimum: clampNumber(minimum, 0, 100, data.rule.minimum),
@@ -362,7 +369,7 @@ function RuleCard({ data }: { data: JudgeList }) {
           step={0.1}
           value={minimum}
           onChange={(e) => setMinimum(e.target.value)}
-          hint={`Default ${DEFAULT_RULE.minimum.toFixed(1)}: one speech-to-text judge.`}
+          hint={`Default ${DEFAULT_RULE.minimum.toFixed(1)}: one speech-to-text judge, or two listening judges, at their default weights.`}
         />
         <div className={styles.ruleButtons}>
           <Button type="submit" variant="primary" disabled={!changed || save.isPending}>
@@ -812,6 +819,35 @@ function SettingInput({
       </div>
     );
   }
+  if (f.type === "long_text") {
+    const text = typeof value === "string" ? value : "";
+    return (
+      <TextAreaField
+        label={label}
+        value={text}
+        placeholder={f.placeholder || undefined}
+        rows={10}
+        onChange={(e) => onChange(e.target.value)}
+        error={error}
+        hint={f.help || undefined}
+        footer={
+          f.placeholder ? (
+            <span>
+              {text === "" ? (
+                <Button size="small" variant="ghost" onClick={() => onChange(f.placeholder)}>
+                  Edit a copy of the built-in text
+                </Button>
+              ) : (
+                <Button size="small" variant="ghost" onClick={() => onChange("")}>
+                  Use the built-in text
+                </Button>
+              )}
+            </span>
+          ) : undefined
+        }
+      />
+    );
+  }
   return (
     <TextField
       label={label}
@@ -931,11 +967,14 @@ function TestDialog({ judge, onClose }: { judge: Judge; onClose: () => void }) {
                     : "It could not tell"
               }
             >
-              {r.transcript !== null && (
-                <span>
-                  Heard <q>{r.transcript}</q>.{" "}
-                </span>
-              )}
+              {r.transcript !== null &&
+                (judge.kind === "listening" ? (
+                  <span>Its note on what it heard: {r.transcript || "none"}. </span>
+                ) : (
+                  <span>
+                    Heard <q>{r.transcript}</q>.{" "}
+                  </span>
+                ))}
               {r.score !== null && (
                 <span>
                   Score {r.score}

@@ -83,6 +83,8 @@ def test_versions_name_the_model_and_logic() -> None:
         "stt": "parakeet-tdt-0.6b-v2@0bbb45a+1",
         "openai-compatible": "openai-compatible+1",
         "elevenlabs": "elevenlabs+1",
+        # Ends in its built-in prompt's hash: changing the prompt changes it.
+        "audio-question": "audio-question+1.f5316fbc",
     }
 
 

@@ -5,8 +5,8 @@ person, so please open an issue to discuss anything larger than a small fix
 before you write code.
 
 Scope: improving wake word detection for self-hosted voice satellites.
-Optional judge types that call a cloud speech-to-text API the owner
-chooses are in scope ([docs/judges.md](docs/judges.md)); Wakewright itself
+Optional judge types that call a cloud speech-to-text or audio-model API
+the owner chooses are in scope ([docs/judges.md](docs/judges.md)); Wakewright itself
 never depends on one. Out of scope: general speech-to-text or
 text-to-speech, telemetry and hosted offerings.
 

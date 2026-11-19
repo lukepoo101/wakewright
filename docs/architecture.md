@@ -138,7 +138,8 @@ with a console entry point (`wakewright-worker`), configured by
 `uv run` on any machine and later inside a desktop wrapper. Each judge
 Each judge type subclasses one small class (`judges/__init__.py`) and is
 registered in `judges/registry.py`; speech-to-text types share the
-transcript rule (`judges/speech.py`) and cloud ones the HTTP error mapping
+transcript rule (`judges/speech.py`), listening types the prompt and answer
+contract (`judges/listening.py`) and cloud ones the HTTP error mapping
 (`judges/http.py`) ([judges.md](judges.md)). Local models are downloaded
 on first use into the cache directory, pinned by revision and SHA-256, and
 never shipped ([models.md](models.md)). The loop prepares the types,
@@ -259,5 +260,6 @@ Architecture decisions are recorded in [adr/](adr/):
 - 0016 [Judging: a derived queue with leases, a shared token, unweighted agreement](adr/0016-judging-queue-and-agreement.md)
 - 0017 [The worker: Python with uv, three downloaded judges, a second image](adr/0017-the-worker.md)
 - 0018 [Workers as records with their own tokens, created in the UI or declared](adr/0018-workers-with-their-own-tokens.md)
-- 0019 [Configurable, weighted judges: types in the worker, instances in the parent](adr/0019-configurable-weighted-judges.md)
+- 0019 [Configurable, weighted judges: types in the worker, instances in the parent](adr/0019-configurable-weighted-judges.md), amended by 0021
 - 0020 [Collection sessions: the one write to a device](adr/0020-collection-sessions.md)
+- 0021 [Listening judges: asking an audio model about the wake word](adr/0021-listening-judges.md)

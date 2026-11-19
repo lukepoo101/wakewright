@@ -22,11 +22,16 @@ class FakeJudge(JudgeType):
     version = VERSION
 
     def __init__(
-        self, type_id: str, name: str, salt: int, wake_words: frozenset[str] | None
+        self,
+        type_id: str,
+        name: str,
+        salt: int,
+        wake_words: frozenset[str] | None,
+        kind: Kind | None = None,
     ) -> None:
         self.id = type_id
         self.name = f"{name} (fake)"
-        self.kind: Kind = "speech_to_text" if wake_words is None else "wake_word_model"
+        self.kind: Kind = kind or ("speech_to_text" if wake_words is None else "wake_word_model")
         self.description = "Answers from a hash of the audio; for tests."
         self._salt = salt
         self.wake_words = wake_words
@@ -35,6 +40,9 @@ class FakeJudge(JudgeType):
         digest = hashlib.sha256(clip.pcm).digest()
         score = round(digest[self._salt] / 255, 4)
         verdict = "yes" if score >= 0.5 else "no"
+        if self.kind == "listening":
+            note = f"someone says {clip.wake_word}" if verdict == "yes" else "other speech"
+            return JudgeResult(verdict, transcript=note)
         if self.wake_words is None:
             heard = clip.wake_word if verdict == "yes" else "something else"
             return JudgeResult(verdict, transcript=heard)
@@ -47,4 +55,5 @@ def fake_judges() -> list[JudgeType]:
         FakeJudge("openwakeword", "openWakeWord", 0, words),
         FakeJudge("microwakeword", "microWakeWord", 1, words),
         FakeJudge("stt", "Speech to text", 2, None),
+        FakeJudge("audio-question", "Audio question", 3, None, "listening"),
     ]

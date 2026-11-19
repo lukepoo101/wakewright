@@ -3,11 +3,13 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import type { BlobStore } from "../blobs.ts";
 import { getClipRow } from "../db/clips.ts";
+import { JUDGE_KINDS } from "../db/judges.ts";
+import { SETTING_TYPES } from "../judge-settings.ts";
 import { type Judging, PROTOCOL } from "../judging.ts";
 import type { WorkerIdentity, Workers } from "../workers.ts";
 import { type ApiEnv, errorContent, newApi } from "./common.ts";
 
-// The worker API, /api/worker/v1 (protocol 2): workers advertise the judge
+// The worker API, /api/worker/v1 (protocol 3; protocol 2 workers too): workers advertise the judge
 // types they offer and claim clips to judge (a long poll), download their
 // audio and send back each judge's result. It is
 // authenticated only by a worker's own token (ADR 0018), never by a user
@@ -28,6 +30,12 @@ export const workerSecurityScheme = {
 interface WorkerEnv extends ApiEnv {
   Variables: ApiEnv["Variables"] & { worker: WorkerIdentity };
 }
+
+/** The protocol versions this parent speaks, in words: "2 to 3". */
+const SPOKEN: string =
+  (PROTOCOL.min as number) === PROTOCOL.max
+    ? String(PROTOCOL.min)
+    : `${PROTOCOL.min} to ${PROTOCOL.max}`;
 
 const TypeId = z
   .string()
@@ -51,9 +59,9 @@ const SettingField = z
       .regex(/^[a-z][a-z0-9_]{0,63}$/)
       .openapi({ example: "model" }),
     label: z.string().min(1).max(100).openapi({ example: "Model" }),
-    type: z.enum(["text", "secret", "number", "select", "boolean"]).openapi({
+    type: z.enum(SETTING_TYPES).openapi({
       description:
-        "How the form shows it. A secret (an API key) is stored encrypted and never shown again.",
+        "How the form shows it. `long_text` is text on several lines (protocol 3). A secret (an API key) is stored encrypted and never shown again.",
     }),
     help: z.string().max(1000).default(""),
     default: SettingValue.default(null),
@@ -65,7 +73,9 @@ const SettingField = z
       .openapi({ description: "The choices of a select." }),
     minimum: z.number().nullable().default(null),
     maximum: z.number().nullable().default(null),
-    placeholder: z.string().max(200).default(""),
+    placeholder: z.string().max(8000).default("").openapi({
+      description: "Shown in the empty field, for example the text an empty value stands for.",
+    }),
     affectsVerdict: z.boolean().default(true).openapi({
       description:
         "Whether changing it can change a verdict. If so, changing it judges every clip again. Ignored for a secret, which never does.",
@@ -82,7 +92,10 @@ const OfferedType = z
         "Changes whenever the type's model or logic changes in a way that can change a verdict; every clip is then judged again.",
     }),
     name: z.string().min(1).max(100).openapi({ example: "OpenAI-compatible transcription" }),
-    kind: z.enum(["wake_word_model", "speech_to_text"]),
+    kind: z.enum(JUDGE_KINDS).openapi({
+      description:
+        "`wake_word_model`; `speech_to_text`: transcribes, then looks for the wake word in the transcript; `listening` (protocol 3): asks an audio model directly whether someone says the wake word.",
+    }),
     description: z.string().max(1000).default(""),
     external: z.boolean().default(false).openapi({
       description:
@@ -109,7 +122,7 @@ const ClaimRequest = z
       .number()
       .int()
       .openapi({
-        description: `The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks ${PROTOCOL.min === PROTOCOL.max ? PROTOCOL.min : `${PROTOCOL.min} to ${PROTOCOL.max}`}.`,
+        description: `The worker protocol version the worker speaks. A parent answers 426 to a version it does not speak; this one speaks ${SPOKEN}.`,
         example: PROTOCOL.max,
       }),
     worker: z
@@ -307,7 +320,7 @@ export function workerRoutes(deps: {
       return c.json(
         {
           error: "unsupported_protocol" as const,
-          message: `This Wakewright speaks worker protocol ${PROTOCOL.min === PROTOCOL.max ? PROTOCOL.min : `${PROTOCOL.min} to ${PROTOCOL.max}`}; the worker sent ${p}. Run the worker and the parent from the same release: upgrade the older of the two.`,
+          message: `This Wakewright speaks worker protocol ${SPOKEN}; the worker sent ${p}. Run the worker and the parent from the same release: upgrade the older of the two.`,
           supported: { ...PROTOCOL },
         },
         426,
